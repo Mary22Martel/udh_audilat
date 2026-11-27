@@ -164,12 +164,18 @@ export class Aulas {
   }
 
   /** El alumno escribe el código que le dio su docente. */
-  unirse(alumnoId: string, codigo: string): Aula {
+  /** Busca un aula abierta por su código (acepta «aud7kq2», «AUD 7KQ2», etc.). */
+  porCodigo(codigo: string): FilaAula {
     const c = String(codigo ?? '').trim().toUpperCase().replace(/\s+/g, '');
     const conGuion = c.startsWith('AUD-') ? c : c.startsWith('AUD') ? `AUD-${c.slice(3)}` : `AUD-${c}`;
     const f = this.lab.db.prepare(`${SELECT} WHERE a.codigo = ?`).get(conGuion) as FilaAula | undefined;
     if (!f) throw new ErrorApp('No encontramos un aula con ese código. Revisa que esté bien escrito.', 404);
     if (f.archivada === 1) throw new ErrorApp('Esa aula ya está cerrada.');
+    return f;
+  }
+
+  unirse(alumnoId: string, codigo: string): Aula {
+    const f = this.porCodigo(codigo);
     if (this.esMiembro(f.id, alumnoId)) throw new ErrorApp(`Ya estás en «${f.nombre}».`);
     this.agregarAlumno(f.id, alumnoId);
     return this.aula(f.id)!;

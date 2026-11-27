@@ -5,6 +5,8 @@ interface Sesion {
   usuario: Perfil | null;
   cargando: boolean;
   ingresar: (correo: string, clave: string) => Promise<Perfil>;
+  /** Crea una cuenta de estudiante y entra (solo alumnos pueden registrarse solos). */
+  registrar: (datos: { nombre: string; correo: string; clave: string; codigoAula?: string }) => Promise<{ usuario: Perfil; aula: { id: string; nombre: string } | null }>;
   salir: () => Promise<void>;
 }
 
@@ -26,6 +28,12 @@ export function SesionProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('auditlab:sesion-vencida', vencida);
   }, []);
 
+  const registrar = useCallback(async (datos: { nombre: string; correo: string; clave: string; codigoAula?: string }) => {
+    const r = await api.post<{ usuario: Perfil; aula: { id: string; nombre: string } | null }>('/api/registro', datos);
+    setUsuario(r.usuario);
+    return r;
+  }, []);
+
   const ingresar = useCallback(async (correo: string, clave: string) => {
     const r = await api.post<{ usuario: Perfil }>('/api/ingresar', { correo, clave });
     setUsuario(r.usuario);
@@ -37,7 +45,7 @@ export function SesionProvider({ children }: { children: ReactNode }) {
     setUsuario(null);
   }, []);
 
-  return <Ctx.Provider value={{ usuario, cargando, ingresar, salir }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ usuario, cargando, ingresar, registrar, salir }}>{children}</Ctx.Provider>;
 }
 
 export function useSesion() {

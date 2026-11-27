@@ -5,13 +5,13 @@ import type { EstadoAlumno, Perfil } from './api';
 import { MISIONES_ACTIVAS } from './reglas';
 
 /** Las misiones con el estado de este alumno: completada, disponible o en preparación. */
+/** Misiones que ve el alumno: solo las activas (las que siguen en preparación no se muestran por ahora). */
 export function misionesDelAlumno(estado: EstadoAlumno | null): Mission[] {
   const hechas = new Set(estado?.completadas ?? []);
-  return INITIAL_MISSIONS.map((m) => {
-    if (!(MISIONES_ACTIVAS as readonly string[]).includes(m.id))
-      return { ...m, status: 'bloqueado', unlockRequirementText: 'Caso en preparación por el equipo docente.' };
-    return { ...m, status: hechas.has(m.id) ? 'completado' : 'disponible' };
-  });
+  return INITIAL_MISSIONS.filter((m) => (MISIONES_ACTIVAS as readonly string[]).includes(m.id)).map((m) => ({
+    ...m,
+    status: hechas.has(m.id) ? 'completado' : 'disponible',
+  }));
 }
 
 /**

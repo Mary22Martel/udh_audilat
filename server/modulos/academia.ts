@@ -4,12 +4,25 @@
  */
 import { randomUUID } from 'node:crypto';
 import { LECCIONES, MODULOS, PREGUNTAS_BASE } from '../../src/data/academiaCurso';
-import { calificar, mezclar, validarPregunta, type Pregunta, type Respuesta } from '../../src/lib/preguntas';
+import { calificar, mezclar, validarPregunta, type AlcancePregunta, type Pregunta, type Respuesta } from '../../src/lib/preguntas';
 import { diaLima, ErrorApp, type AuditLab, type Usuario } from '../db';
 
 export const VIDAS = 3;
 export const MAX_PREGUNTAS_LECCION = 8;
 export const SEGUNDOS_CONTRARRELOJ = 60;
+/** En cada lección entran primero las preguntas del docente (hasta este número) y se completa con las demás. */
+export const MAX_PREGUNTAS_DOCENTE_LECCION = 4;
+
+/**
+ * Qué preguntas ve cada quien (condición SQL sobre «p»):
+ *  - las base y las del admin, todos;
+ *  - las de un docente, solo los alumnos de sus aulas (de la elegida, o de cualquiera si no eligió).
+ */
+const VISIBLE_PARA_ALUMNO = `(p.base = 1
+  OR p.autor_id IN (SELECT id FROM usuarios WHERE rol = 'admin')
+  OR p.aula_id IN (SELECT aula_id FROM aula_alumnos WHERE alumno_id = ?)
+  OR (p.aula_id IS NULL AND p.autor_id IN (SELECT a.docente_id FROM aulas a JOIN aula_alumnos m ON m.aula_id = a.id WHERE m.alumno_id = ?)))`;
+const VISIBLE_PARA_DOCENTE = `(p.base = 1 OR p.autor_id IN (SELECT id FROM usuarios WHERE rol = 'admin') OR p.autor_id = ?)`;
 
 interface FilaPregunta {
   id: string;
@@ -20,6 +33,9 @@ interface FilaPregunta {
   datos: string;
   autor_id: string | null;
   autor: string | null;
+  autor_rol: string | null;
+  aula_id: string | null;
+  aula_nombre: string | null;
   base: number;
   editada: number;
   activo: number;
@@ -30,6 +46,8 @@ export interface RespuestaEnviada {
   preguntaId: string;
   respuesta: Respuesta | null;
 }
+
+const alcanceDe = (f: FilaPregunta): AlcancePregunta => (f.base ? 'base' : f.autor_rol === 'docente' ? 'aula' : 'general');
 
 const aPregunta = (f: FilaPregunta): Pregunta =>
   ({
@@ -42,11 +60,18 @@ const aPregunta = (f: FilaPregunta): Pregunta =>
     autor: f.base ? null : f.autor ?? 'Docente',
     activo: f.activo === 1,
     editada: f.editada === 1,
+    alcance: alcanceDe(f),
+    autorId: f.autor_id,
+    aulaId: f.aula_id,
+    aulaNombre: f.aula_nombre,
   }) as Pregunta;
 
 /** Separa lo que va en columnas de lo que va en el JSON de datos. */
 function partes(p: Pregunta) {
-  const { id: _i, leccionId, tipo, enunciado, explicacion, autor: _a, activo: _ac, editada: _e, ...datos } = p as Pregunta & Record<string, unknown>;
+  const {
+    id: _i, leccionId, tipo, enunciado, explicacion, autor: _a, activo: _ac, editada: _e,
+    alcance: _al, autorId: _ai, aulaId: _au, aulaNombre: _an, respondida: _r, acierto: _ok, editable: _ed, ...datos
+  } = p as Pregunta & Record<string, unknown>;
   return { leccionId, tipo, enunciado: String(enunciado ?? '').trim(), explicacion: String(explicacion ?? '').trim(), datos: JSON.stringify(datos) };
 }
 
@@ -93,7 +118,10 @@ export class Academia {
       CREATE INDEX IF NOT EXISTS academia_respuestas_pregunta ON academia_respuestas (pregunta_id);
       CREATE INDEX IF NOT EXISTS academia_respuestas_alumno ON academia_respuestas (alumno_id, fecha);
     `);
-    // Preguntas base nuevas: se agregan sin tocar las que un docente ya editó.
+    // v4: las preguntas de un docente pueden ir a una de sus aulas.
+    const columnas = (lab.db.prepare('PRAGMA table_info(preguntas)').all() as { name: string }[]).map((c) => c.name);
+    if (!columnas.includes('aula_id')) lab.db.exec('ALTER TABLE preguntas ADD COLUMN aula_id TEXT REFERENCES aulas(id) ON DELETE SET NULL');
+    // Preguntas base nuevas: se agregan sin tocar las que ya se editaron.
     const ins = lab.db.prepare(
       'INSERT OR IGNORE INTO preguntas (id, leccion_id, tipo, enunciado, explicacion, datos, base, creado, actualizado) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)'
     );
@@ -109,7 +137,10 @@ export class Academia {
   private filas(where = '', ...args: (string | number)[]) {
     return (
       this.lab.db
-        .prepare(`SELECT p.*, u.nombre AS autor FROM preguntas p LEFT JOIN usuarios u ON u.id = p.autor_id ${where}`)
+        .prepare(
+          `SELECT p.*, u.nombre AS autor, u.rol AS autor_rol, au.nombre AS aula_nombre FROM preguntas p
+           LEFT JOIN usuarios u ON u.id = p.autor_id LEFT JOIN aulas au ON au.id = p.aula_id ${where}`
+        )
         .all(...args) as unknown as FilaPregunta[]
     ).map(aPregunta);
   }
@@ -118,11 +149,38 @@ export class Academia {
     return this.filas('WHERE p.id = ?', id)[0] ?? null;
   }
 
-  /** Todo el banco con estadísticas de uso (para el docente). */
-  banco() {
+  /** ¿Puede este usuario cambiar la pregunta? El admin, todas; el docente, solo las suyas. */
+  puedeEditar(u: Usuario, p: Pregunta) {
+    return u.rol === 'admin' || (u.rol === 'docente' && p.alcance === 'aula' && p.autorId === u.id);
+  }
+
+  private exigirEdicion(u: Usuario, id: string): Pregunta {
+    const p = this.pregunta(id);
+    if (!p) throw new ErrorApp('Pregunta no encontrada.', 404);
+    if (!this.puedeEditar(u, p))
+      throw new ErrorApp(
+        p.alcance === 'aula' ? 'Esta pregunta es de otro docente.' : 'Las preguntas del sistema las edita el administrador. Puedes duplicarla para tus aulas.',
+        403
+      );
+    return p;
+  }
+
+  /** ¿La puede usar este docente (en sus retos)? Las base, las del admin y las suyas. */
+  visibleParaDocente(docenteId: string, id: string) {
+    return !!this.lab.db.prepare(`SELECT 1 FROM preguntas p WHERE p.id = ? AND ${VISIBLE_PARA_DOCENTE}`).get(id, docenteId);
+  }
+
+  /**
+   * Banco con estadísticas de uso. El docente ve las del sistema y las suyas, con los aciertos de sus alumnos;
+   * el admin ve todo, con los aciertos de todos.
+   */
+  banco(u: Usuario) {
+    const esDocente = u.rol === 'docente';
+    const alumnos = esDocente ? this.alumnosDeDocente(u.id) : null;
+    const filtro = alumnos ? (alumnos.length ? `WHERE alumno_id IN (${alumnos.map(() => '?').join(',')})` : 'WHERE 0') : '';
     const stats = new Map(
       (
-        this.lab.db.prepare('SELECT pregunta_id AS id, COUNT(*) AS n, SUM(correcta) AS ok FROM academia_respuestas GROUP BY pregunta_id').all() as {
+        this.lab.db.prepare(`SELECT pregunta_id AS id, COUNT(*) AS n, SUM(correcta) AS ok FROM academia_respuestas ${filtro} GROUP BY pregunta_id`).all(...(alumnos ?? [])) as {
           id: string;
           n: number;
           ok: number;
@@ -130,47 +188,64 @@ export class Academia {
       ).map((s) => [s.id, s])
     );
     const orden = new Map(LECCIONES.map((l, i) => [l.id, i]));
-    return this.filas()
+    const lista = esDocente ? this.filas(`WHERE ${VISIBLE_PARA_DOCENTE}`, u.id) : this.filas();
+    return lista
       .sort((a, b) => (orden.get(a.leccionId) ?? 99) - (orden.get(b.leccionId) ?? 99) || a.id.localeCompare(b.id))
       .map((p) => {
         const s = stats.get(p.id);
-        return { ...p, respondida: s?.n ?? 0, acierto: s ? pct(s.ok, s.n) : null };
+        return { ...p, respondida: s?.n ?? 0, acierto: s ? pct(s.ok, s.n) : null, editable: this.puedeEditar(u, p) };
       });
+  }
+
+  private alumnosDeDocente(docenteId: string): string[] {
+    return (
+      this.lab.db.prepare('SELECT DISTINCT m.alumno_id AS id FROM aula_alumnos m JOIN aulas a ON a.id = m.aula_id WHERE a.docente_id = ?').all(docenteId) as { id: string }[]
+    ).map((f) => f.id);
+  }
+
+  /** Aula de destino: el docente solo puede elegir una suya (o ninguna = todas sus aulas). El admin publica para todos. */
+  private aulaDestino(u: Usuario, aulaId: unknown): string | null {
+    if (u.rol !== 'docente' || !aulaId) return null;
+    const aula = this.lab.aulas.aula(String(aulaId));
+    if (!aula || aula.docenteId !== u.id) throw new ErrorApp('Elige una de tus aulas.');
+    return aula.id;
   }
 
   crearPregunta(autor: Usuario, p: Pregunta): Pregunta {
     const err = validarPregunta(p);
     if (err) throw new ErrorApp(err);
     if (!LECCIONES.some((l) => l.id === p.leccionId)) throw new ErrorApp('Lección no válida.');
+    const aulaId = this.aulaDestino(autor, p.aulaId);
     const id = `p-${randomUUID().slice(0, 8)}`;
     const x = partes(p);
     this.lab.db
-      .prepare('INSERT INTO preguntas (id, leccion_id, tipo, enunciado, explicacion, datos, autor_id, creado, actualizado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, x.leccionId, x.tipo, x.enunciado, x.explicacion, x.datos, autor.id, this.lab.iso(), this.lab.iso());
+      .prepare('INSERT INTO preguntas (id, leccion_id, tipo, enunciado, explicacion, datos, autor_id, aula_id, creado, actualizado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, x.leccionId, x.tipo, x.enunciado, x.explicacion, x.datos, autor.id, aulaId, this.lab.iso(), this.lab.iso());
     return this.pregunta(id)!;
   }
 
-  actualizarPregunta(id: string, p: Pregunta): Pregunta {
-    const actual = this.pregunta(id);
-    if (!actual) throw new ErrorApp('Pregunta no encontrada.', 404);
+  actualizarPregunta(u: Usuario, id: string, p: Pregunta): Pregunta {
+    const actual = this.exigirEdicion(u, id);
     const err = validarPregunta(p);
     if (err) throw new ErrorApp(err);
     const x = partes(p);
+    const aulaId = actual.alcance === 'aula' && u.rol === 'docente' ? this.aulaDestino(u, p.aulaId) : actual.aulaId ?? null;
     this.lab.db
-      .prepare('UPDATE preguntas SET leccion_id = ?, tipo = ?, enunciado = ?, explicacion = ?, datos = ?, editada = 1, actualizado = ? WHERE id = ?')
-      .run(x.leccionId, x.tipo, x.enunciado, x.explicacion, x.datos, this.lab.iso(), id);
+      .prepare('UPDATE preguntas SET leccion_id = ?, tipo = ?, enunciado = ?, explicacion = ?, datos = ?, aula_id = ?, editada = 1, actualizado = ? WHERE id = ?')
+      .run(x.leccionId, x.tipo, x.enunciado, x.explicacion, x.datos, aulaId, this.lab.iso(), id);
     return this.pregunta(id)!;
   }
 
-  cambiarEstado(id: string, activo: boolean) {
-    const r = this.lab.db.prepare('UPDATE preguntas SET activo = ? WHERE id = ?').run(activo ? 1 : 0, id);
-    if (!r.changes) throw new ErrorApp('Pregunta no encontrada.', 404);
+  cambiarEstado(u: Usuario, id: string, activo: boolean) {
+    this.exigirEdicion(u, id);
+    this.lab.db.prepare('UPDATE preguntas SET activo = ? WHERE id = ?').run(activo ? 1 : 0, id);
   }
 
-  /** Deja una pregunta base como venía en el sistema. */
-  restaurar(id: string): Pregunta {
+  /** Deja una pregunta base como venía en el sistema (solo el admin). */
+  restaurar(u: Usuario, id: string): Pregunta {
     const original = PREGUNTAS_BASE.find((p) => p.id === id);
     if (!original) throw new ErrorApp('Solo se pueden restaurar las preguntas base del sistema.');
+    this.exigirEdicion(u, id);
     const x = partes(original);
     this.lab.db
       .prepare('UPDATE preguntas SET leccion_id = ?, tipo = ?, enunciado = ?, explicacion = ?, datos = ?, editada = 0, activo = 1, actualizado = ? WHERE id = ?')
@@ -178,15 +253,19 @@ export class Academia {
     return this.pregunta(id)!;
   }
 
-  eliminar(id: string) {
-    const p = this.pregunta(id);
-    if (!p) throw new ErrorApp('Pregunta no encontrada.', 404);
-    if (!p.autor) throw new ErrorApp('Las preguntas base no se eliminan; puedes desactivarlas.');
+  eliminar(u: Usuario, id: string) {
+    const p = this.exigirEdicion(u, id);
+    if (p.alcance === 'base') throw new ErrorApp('Las preguntas base no se eliminan; puedes desactivarlas.');
     this.lab.db.prepare('DELETE FROM preguntas WHERE id = ?').run(id);
   }
 
-  activasDeLeccion(leccionId: string) {
-    return this.filas('WHERE p.leccion_id = ? AND p.activo = 1', leccionId);
+  /** Preguntas activas de una lección que ve este alumno. */
+  activasDeLeccion(leccionId: string, alumnoId: string) {
+    return this.filas(`WHERE p.leccion_id = ? AND p.activo = 1 AND ${VISIBLE_PARA_ALUMNO}`, leccionId, alumnoId, alumnoId);
+  }
+
+  private visiblesPara(alumnoId: string, extra = '', ...args: string[]) {
+    return this.filas(`WHERE p.activo = 1 AND ${VISIBLE_PARA_ALUMNO} ${extra}`, alumnoId, alumnoId, ...args);
   }
 
   // --- Progreso del alumno --------------------------------------------------------------------------------------
@@ -257,9 +336,13 @@ export class Academia {
   progreso(alumnoId: string) {
     const m = this.mejores(alumnoId);
     const abiertas = this.desbloqueadas(alumnoId);
-    const cuenta = new Map(
-      (this.lab.db.prepare('SELECT leccion_id AS id, COUNT(*) AS n FROM preguntas WHERE activo = 1 GROUP BY leccion_id').all() as { id: string; n: number }[]).map((x) => [x.id, x.n])
-    );
+    const visibles = this.visiblesPara(alumnoId);
+    const cuenta = new Map<string, number>();
+    const deDocente = new Map<string, number>();
+    for (const p of visibles) {
+      cuenta.set(p.leccionId, (cuenta.get(p.leccionId) ?? 0) + 1);
+      if (p.alcance === 'aula') deDocente.set(p.leccionId, (deDocente.get(p.leccionId) ?? 0) + 1);
+    }
     const record = this.lab.db.prepare("SELECT MAX(aciertos) AS r FROM academia_intentos WHERE alumno_id = ? AND modo = 'contrarreloj'").get(alumnoId) as { r: number | null };
     return {
       xp: this.xp(alumnoId),
@@ -268,6 +351,7 @@ export class Academia {
       segundosContrarreloj: SEGUNDOS_CONTRARRELOJ,
       recordContrarreloj: record.r ?? 0,
       observadas: this.observadas(alumnoId).length,
+      preguntasDeTuDocente: visibles.filter((p) => p.alcance === 'aula').length,
       lecciones: Object.fromEntries(
         LECCIONES.map((l) => {
           const x = m.get(l.id);
@@ -280,6 +364,7 @@ export class Academia {
               mejorXp: x?.completada ? x.xp : 0,
               intentos: x?.intentos ?? 0,
               preguntas: Math.min(cuenta.get(l.id) ?? 0, MAX_PREGUNTAS_LECCION),
+              deTuDocente: deDocente.get(l.id) ?? 0,
               precision: this.precision(alumnoId, [l.id]),
             },
           ];
@@ -293,9 +378,16 @@ export class Academia {
     const l = LECCIONES.find((x) => x.id === leccionId);
     if (!l) throw new ErrorApp('Lección no encontrada.', 404);
     if (!this.desbloqueadas(alumnoId).has(leccionId)) throw new ErrorApp('Primero completa la lección anterior.', 403);
-    const preguntas = mezclar(this.activasDeLeccion(leccionId)).slice(0, MAX_PREGUNTAS_LECCION);
+    const preguntas = this.elegirPreguntas(this.activasDeLeccion(leccionId, alumnoId));
     if (!preguntas.length) throw new ErrorApp('Esta lección todavía no tiene preguntas.');
     return { leccion: l, preguntas, vidas: VIDAS };
+  }
+
+  /** Primero las del docente (para que sus alumnos sí las vean), luego las demás, y todo mezclado. */
+  private elegirPreguntas(pool: Pregunta[]) {
+    const delDocente = mezclar(pool.filter((p) => p.alcance === 'aula')).slice(0, MAX_PREGUNTAS_DOCENTE_LECCION);
+    const resto = mezclar(pool.filter((p) => p.alcance !== 'aula')).slice(0, MAX_PREGUNTAS_LECCION - delDocente.length);
+    return mezclar([...delDocente, ...resto]);
   }
 
   /** Califica en el servidor y guarda cada respuesta (para el seguimiento del docente). */
@@ -314,7 +406,9 @@ export class Academia {
 
   registrarLeccion(alumnoId: string, leccionId: string, respuestas: RespuestaEnviada[], segundos: number) {
     if (!this.desbloqueadas(alumnoId).has(leccionId)) throw new ErrorApp('Primero completa la lección anterior.', 403);
-    const validas = (respuestas ?? []).filter((r) => this.pregunta(r.preguntaId)?.leccionId === leccionId).slice(0, MAX_PREGUNTAS_LECCION);
+    const pool = this.activasDeLeccion(leccionId, alumnoId);
+    const ids = new Set(pool.map((p) => p.id));
+    const validas = (respuestas ?? []).filter((r) => ids.has(r.preguntaId)).slice(0, MAX_PREGUNTAS_LECCION);
     if (!validas.length) throw new ErrorApp('No hay respuestas para registrar.');
     const antes = this.lab.estadoAlumno(alumnoId);
     const insigniasAntes = new Set(antes.insignias.map((i) => i.id));
@@ -327,7 +421,7 @@ export class Academia {
     const detalle = this.calificarYGuardar(alumnoId, id, validas);
     const aciertos = detalle.filter((d) => d.correcta).length;
     const errores = detalle.length - aciertos;
-    const disponibles = Math.min(this.activasDeLeccion(leccionId).length, MAX_PREGUNTAS_LECCION);
+    const disponibles = Math.min(pool.length, MAX_PREGUNTAS_LECCION);
     const completada = errores < VIDAS && detalle.length >= disponibles;
     const precision = aciertos / Math.max(1, detalle.length);
     const estrellas = completada ? (precision >= 0.9 ? 3 : precision >= 0.7 ? 2 : 1) : 0;
@@ -358,7 +452,7 @@ export class Academia {
 
   contrarreloj(alumnoId: string) {
     const abiertas = [...this.desbloqueadas(alumnoId)];
-    const pool = this.filas("WHERE p.activo = 1 AND p.tipo IN ('vf', 'opcion', 'calculo')").filter((p) => abiertas.includes(p.leccionId));
+    const pool = this.visiblesPara(alumnoId, "AND p.tipo IN ('vf', 'opcion', 'calculo')").filter((p) => abiertas.includes(p.leccionId));
     return { segundos: SEGUNDOS_CONTRARRELOJ, preguntas: mezclar(pool).slice(0, 40) };
   }
 
@@ -495,8 +589,27 @@ export class Academia {
   resumenGeneral() {
     const intentos = (this.lab.db.prepare('SELECT COUNT(*) AS n FROM academia_intentos').get() as { n: number }).n;
     const r = this.lab.db.prepare('SELECT COUNT(*) AS n, SUM(correcta) AS ok FROM academia_respuestas').get() as { n: number; ok: number | null };
-    const preguntas = this.lab.db.prepare('SELECT COUNT(*) AS n, SUM(CASE WHEN base = 0 THEN 1 ELSE 0 END) AS docentes FROM preguntas WHERE activo = 1').get() as { n: number; docentes: number | null };
-    return { intentos, respuestas: r.n, precision: pct(r.ok ?? 0, r.n), preguntas: preguntas.n, preguntasDocentes: preguntas.docentes ?? 0 };
+    const preguntas = this.lab.db
+      .prepare("SELECT COUNT(*) AS n, SUM(CASE WHEN p.base = 0 AND u.rol = 'docente' THEN 1 ELSE 0 END) AS docentes FROM preguntas p LEFT JOIN usuarios u ON u.id = p.autor_id WHERE p.activo = 1")
+      .get() as { n: number; docentes: number | null };
+    const porDocente = this.lab.db
+      .prepare(
+        "SELECT u.id, u.nombre, COUNT(*) AS n FROM preguntas p JOIN usuarios u ON u.id = p.autor_id WHERE p.base = 0 AND u.rol = 'docente' AND p.activo = 1 GROUP BY u.id ORDER BY n DESC"
+      )
+      .all() as { id: string; nombre: string; n: number }[];
+    const alumnos = (this.lab.db.prepare("SELECT id FROM usuarios WHERE rol = 'estudiante' AND activo = 1").all() as { id: string }[]).map((f) => f.id);
+    const general = this.seguimiento(alumnos);
+    return {
+      intentos,
+      respuestas: r.n,
+      precision: pct(r.ok ?? 0, r.n),
+      preguntas: preguntas.n,
+      preguntasDocentes: preguntas.docentes ?? 0,
+      porDocente,
+      dominio: general.dominio,
+      masFalladas: general.masFalladas.slice(0, 5),
+      leccionesPromedio: general.leccionesPromedio,
+    };
   }
 }
 

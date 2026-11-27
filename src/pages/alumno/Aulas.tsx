@@ -1,7 +1,7 @@
-import { motion } from 'motion/react';
-import { ArrowRight, Crown, KeyRound, Radio, School, Swords, Users } from 'lucide-react';
+import { ArrowRight, Crown, KeyRound, RefreshCw, School, Swords, Users } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { TarjetaActividad } from '../../components/TarjetaActividad';
 import { Encabezado, Pagina, Tarjeta, Vacio, estiloCampo, fechaCorta } from '../../components/ui';
 import { api, type AulaCorta, type ResumenProyecto } from '../../lib/api';
 import { useAlumno } from './datos';
@@ -36,6 +36,8 @@ export function Aulas() {
       setMsg({ ok: true, t: `Listo: te uniste a «${r.aula.nombre}» (${r.aula.docente}).` });
       setCodigo('');
       recargar();
+      cargar(); // si el aula ya tiene una actividad abierta, aparece al instante
+
     } catch (err) {
       setMsg({ ok: false, t: (err as Error).message });
     }
@@ -46,43 +48,29 @@ export function Aulas() {
 
   return (
     <Pagina>
-      <Encabezado antetitulo="Mis aulas" titulo="Aulas y competencias por equipos" descripcion="Únete al aula de tu docente con el código que te dio. Aquí aparecerán los retos por equipos." />
+      <Encabezado
+        antetitulo="Mis aulas"
+        titulo="Mis aulas y actividades"
+        descripcion="Únete al aula de tu docente con el código que te dio. Aquí aparecen las actividades en vivo que abre tu docente."
+        acciones={
+          <button onClick={cargar} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-[var(--c-linea-fuerte)] text-sm font-semibold hover:border-[var(--c-teal)]">
+            <RefreshCw className="w-4 h-4" /> Actualizar
+          </button>
+        }
+      />
 
       {vivos.map((p) => (
-        <motion.button
-          key={p.id}
-          initial={{ opacity: 0, scale: 0.97 }}
-          animate={{ opacity: 1, scale: 1 }}
-          onClick={() => navigate(`/app/proyectos/${p.id}`)}
-          className="w-full text-left relative overflow-hidden rounded-3xl p-6 text-white bg-gradient-to-r from-[#0b1a26] to-[#163447] border border-[var(--c-oro)]/50"
-        >
-          <motion.span className="absolute inset-0 bg-[var(--c-oro)]/10" animate={{ opacity: [0.2, 0.6, 0.2] }} transition={{ duration: 2, repeat: Infinity }} />
-          <div className="relative flex flex-col sm:flex-row sm:items-center gap-4">
-            <span className="w-14 h-14 rounded-2xl bg-rose-600 flex items-center justify-center shrink-0">
-              <Radio className="w-7 h-7 animate-pulse" />
-            </span>
-            <span className="flex-1 min-w-0">
-              <span className={`inline-block text-[10px] font-black tracking-wider px-2 py-0.5 rounded ${ESTADO[p.estado].c}`}>{ESTADO[p.estado].t}</span>
-              <span className="block font-display text-2xl font-extrabold mt-1">{p.nombre}</span>
-              <span className="block text-sm text-white/70">
-                {p.aula} · {p.miEquipo && <strong style={{ color: p.miEquipo.color }}>{p.miEquipo.nombre}</strong>}
-              </span>
-            </span>
-            <span className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#48a6a7] font-bold">
-              {p.estado === 'en_curso' ? 'Jugar ahora' : 'Entrar a la sala'} <ArrowRight className="w-4 h-4" />
-            </span>
-          </div>
-        </motion.button>
+        <TarjetaActividad key={p.id} p={p} />
       ))}
 
       <div className="grid lg:grid-cols-12 gap-6">
-        <Tarjeta className="lg:col-span-5 p-6 space-y-4">
+        <Tarjeta className="lg:col-span-5 p-6 space-y-4 min-w-0">
           <h2 className="font-display font-bold flex items-center gap-2">
             <KeyRound className="w-4 h-4 text-[var(--c-teal)]" /> Unirme a un aula
           </h2>
           <form onSubmit={unirse} className="flex gap-2">
             <input
-              className={`${estiloCampo} font-mono uppercase tracking-widest text-center`}
+              className={`${estiloCampo} min-w-0 flex-1 font-mono uppercase tracking-widest text-center`}
               placeholder="AUD-XXXX"
               value={codigo}
               onChange={(e) => setCodigo(e.target.value)}
@@ -95,7 +83,7 @@ export function Aulas() {
           <p className="text-xs text-[var(--c-suave)]">Tu docente te da el código en clase. Puedes estar en varias aulas.</p>
         </Tarjeta>
 
-        <Tarjeta className="lg:col-span-7 p-6 space-y-3" retraso={0.05}>
+        <Tarjeta className="lg:col-span-7 p-6 space-y-3 min-w-0" retraso={0.05}>
           <h2 className="font-display font-bold flex items-center gap-2">
             <School className="w-4 h-4 text-[var(--c-teal)]" /> Mis aulas
           </h2>
@@ -120,11 +108,15 @@ export function Aulas() {
 
       <section className="space-y-3">
         <h2 className="font-display font-bold text-lg flex items-center gap-2">
-          <Swords className="w-5 h-5 text-[var(--c-oro)]" /> Retos por equipos
+          <Swords className="w-5 h-5 text-[var(--c-oro)]" /> Actividades terminadas
         </h2>
-        {proyectos && proyectos.length === 0 ? (
+        {proyectos && otros.length === 0 ? (
           <Tarjeta>
-            <Vacio icono={Swords} titulo="Aún no hay retos" texto="Cuando tu docente arme una competencia por equipos y te asigne a uno, aparecerá aquí." />
+            <Vacio
+              icono={Swords}
+              titulo={vivos.length ? 'Todavía no terminas ninguna' : 'Aún no hay actividades'}
+              texto="Cuando tu docente abra una actividad en vivo (individual o por equipos) aparecerá arriba con un botón para entrar. Al terminar, aquí verás tu resultado y la solución."
+            />
           </Tarjeta>
         ) : (
           <div className="grid sm:grid-cols-2 gap-4">
@@ -136,10 +128,10 @@ export function Aulas() {
                 </div>
                 <p className="font-display font-bold">{p.nombre}</p>
                 <p className="text-xs text-[var(--c-suave)]">
-                  {p.aula} · {p.miEquipo?.nombre}
+                  {p.aula} · {p.modo === 'individual' ? 'individual' : p.miEquipo?.nombre}
                 </p>
                 {p.ganador && (
-                  <p className="text-sm inline-flex items-center gap-1.5">
+                  <p className="text-sm flex items-center gap-1.5">
                     <Crown className="w-4 h-4 text-[var(--c-oro)]" /> Ganó <strong>{p.ganador}</strong>
                   </p>
                 )}

@@ -3,13 +3,17 @@ import { LECCIONES } from '../../src/data/academiaCurso';
 import { crearApp } from '../app';
 import { AuditLab } from '../db';
 import { respuestaCorrecta, respuestaIncorrecta, simularIntento } from '../simular';
+import { INITIAL_MISSIONS } from '../../src/data/missionsData';
+import { xpMaximo } from '../../src/lib/reglas';
 
 let lab: AuditLab;
 let app: ReturnType<typeof crearApp>;
 let reloj: Date | null = null;
 
 /** Cliente con su propia cookie de sesión. */
-async function cliente(correo: string, clave: string) {
+async function cliente(correo?: string, clave?: string) {
+  // Sin datos: visitante sin sesión (para probar el registro).
+  if (!correo) return (method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE', url: string, payload?: object) => app.inject({ method, url, payload });
   const r = await app.inject({ method: 'POST', url: '/api/ingresar', payload: { correo, clave } });
   expect(r.statusCode, r.body).toBe(200);
   const cookie = String(r.headers['set-cookie']).split(';')[0];
@@ -125,28 +129,73 @@ describe('academia', () => {
     expect(rep.pendientes).toBe(0);
   });
 
-  it('el docente edita el banco y ve el seguimiento de su aula', async () => {
+  it('el docente crea preguntas para su aula; las del sistema solo las edita el admin', async () => {
     const { vale, docente, aula } = await preparar();
+    const admin = await cliente('admin@udh.edu.pe', 'clave-admin-1');
     const nueva = {
       leccionId: LECCIONES[0].id,
       tipo: 'vf',
       enunciado: 'La boleta permite usar crédito fiscal.',
       explicacion: 'No, la boleta es para consumidores finales.',
       correcta: false,
+      aulaId: aula.id,
     };
     const { pregunta } = (await docente('POST', '/api/preguntas', nueva)).json();
     expect(pregunta.autor).toBe('Rosa Albornoz');
+    expect(pregunta.alcance).toBe('aula');
+    expect(pregunta.aulaNombre).toBe('Auditoría – Sección A');
     expect((await docente('POST', '/api/preguntas', { ...nueva, enunciado: '' })).statusCode).toBe(400);
-    const editada = (await docente('PUT', '/api/preguntas/b-m1-02', { ...nueva, leccionId: LECCIONES[0].id, enunciado: 'Editada', correcta: true })).json().pregunta;
-    expect(editada.editada).toBe(true);
-    expect((await docente('POST', '/api/preguntas/b-m1-02/restaurar')).json().pregunta.editada).toBe(false);
-    expect((await docente('DELETE', '/api/preguntas/b-m1-01')).statusCode).toBe(400);
+    // Las del sistema: el docente no las cambia (afectarían a todos); el admin sí.
+    const cambio = { ...nueva, enunciado: 'Editada', correcta: true };
+    expect((await docente('PUT', '/api/preguntas/b-m1-02', cambio)).statusCode).toBe(403);
+    expect((await docente('POST', '/api/preguntas/b-m1-02/estado', { activo: false })).statusCode).toBe(403);
+    expect((await admin('PUT', '/api/preguntas/b-m1-02', cambio)).json().pregunta.editada).toBe(true);
+    expect((await admin('POST', '/api/preguntas/b-m1-02/restaurar')).json().pregunta.editada).toBe(false);
+    expect((await admin('DELETE', '/api/preguntas/b-m1-01')).statusCode).toBe(400);
+    // Sus propias preguntas sí las edita y las desactiva.
+    expect((await docente('PUT', `/api/preguntas/${pregunta.id}`, { ...nueva, enunciado: 'La boleta sustenta crédito fiscal.' })).statusCode).toBe(200);
+    const banco = (await docente('GET', '/api/preguntas')).json().preguntas;
+    expect(banco.find((p: { id: string }) => p.id === pregunta.id).editable).toBe(true);
+    expect(banco.find((p: { id: string }) => p.id === 'b-m1-01').editable).toBe(false);
 
     await jugar(vale, LECCIONES[0].id, 2);
     const seg = (await docente('GET', `/api/docente/aulas/${aula.id}`)).json();
     expect(seg.alumnos).toHaveLength(2);
     expect(seg.alumnos.find((a: { nombre: string }) => a.nombre === 'Valeria Mendoza').precision).not.toBeNull();
     expect(seg.dominio[0].respuestas).toBeGreaterThan(0);
+    expect(seg.preguntasPropias).toBe(1);
+    expect(seg.misiones.length).toBeGreaterThan(0);
+  });
+
+  it('las preguntas del docente solo llegan a los alumnos de su aula', async () => {
+    const { vale, otro, docente, aula } = await preparar();
+    const { pregunta } = (
+      await docente('POST', '/api/preguntas', {
+        leccionId: LECCIONES[0].id,
+        tipo: 'vf',
+        enunciado: 'Pregunta solo para mi aula.',
+        explicacion: 'Sí.',
+        correcta: true,
+        aulaId: aula.id,
+      })
+    ).json();
+    const ids = async (c: Awaited<ReturnType<typeof cliente>>) => {
+      const vistos = new Set<string>();
+      for (let i = 0; i < 6; i++) for (const p of (await c('GET', `/api/academia/lecciones/${LECCIONES[0].id}`)).json().preguntas) vistos.add(p.id);
+      return vistos;
+    };
+    expect((await ids(vale)).has(pregunta.id)).toBe(true);
+    expect((await ids(otro)).has(pregunta.id)).toBe(false);
+    expect((await vale('GET', '/api/academia')).json().preguntasDeTuDocente).toBe(1);
+    expect((await otro('GET', '/api/academia')).json().preguntasDeTuDocente).toBe(0);
+
+    // Otro docente no la ve en su banco ni la puede usar.
+    lab.crearUsuario({ rol: 'docente', nombre: 'Julio Espinoza', correo: 'julio@udh.edu.pe', clave: 'docente-123' });
+    const julio = await cliente('julio@udh.edu.pe', 'docente-123');
+    expect((await julio('GET', '/api/preguntas')).json().preguntas.some((p: { id: string }) => p.id === pregunta.id)).toBe(false);
+    expect((await julio('PUT', `/api/preguntas/${pregunta.id}`, { ...pregunta, enunciado: 'Cambio ajeno' })).statusCode).toBe(403);
+    // Y no puede elegir un aula que no es suya.
+    expect((await julio('POST', '/api/preguntas', { leccionId: LECCIONES[0].id, tipo: 'vf', enunciado: 'X', explicacion: '', correcta: true, aulaId: aula.id })).statusCode).toBe(400);
   });
 
   it('la clasificación de la Academia es por aula y la de misiones es general', async () => {
@@ -159,9 +208,32 @@ describe('academia', () => {
     expect(mi.puestos[0].nombre).toBe('Otro Alumno');
     expect(mi.puestos).toHaveLength(3);
   });
+
+  it('una misión jugada perfecto (combo x2.5) se guarda; más XP de lo posible, no', async () => {
+    const { vale } = await preparar();
+    const mision = INITIAL_MISSIONS.find((m) => m.id === 'mision-01')!;
+    const max = xpMaximo(mision);
+    expect(max).toBeGreaterThan(mision.xpReward * 2);
+    const base = simularIntento('mision-01', 1, () => 0.1);
+    expect((await vale('POST', '/api/alumno/resultados', { resultado: { ...base, xpEarned: max } })).statusCode).toBe(200);
+    expect((await vale('POST', '/api/alumno/resultados', { resultado: { ...base, xpEarned: max + 1 } })).statusCode).toBe(400);
+  });
+
+  it('el docente ve las misiones solo de sus alumnos', async () => {
+    const { docente, diego, otro, aula } = await preparar();
+    await diego('POST', '/api/alumno/resultados', { resultado: simularIntento('mision-01', 0.9, () => 0.3) });
+    await otro('POST', '/api/alumno/resultados', { resultado: simularIntento('mision-01', 1, () => 0.1) });
+    const r = (await docente('GET', '/api/docente/misiones')).json();
+    expect(r.aula.id).toBe(aula.id);
+    const m1 = r.misiones.find((m: { id: string }) => m.id === 'mision-01');
+    expect(m1).toMatchObject({ alumnos: 2, resolvieron: 1 });
+    const cl = (await docente('GET', `/api/clasificacion?tipo=misiones&aula=${aula.id}`)).json();
+    expect(cl.puestos.map((p: { nombre: string }) => p.nombre)).not.toContain('Otro Alumno');
+    expect(cl.puestos).toHaveLength(2);
+  });
 });
 
-describe('proyectos por equipos', () => {
+describe('actividades en vivo', () => {
   async function proyecto() {
     const p = await preparar();
     const datos = {
@@ -218,5 +290,94 @@ describe('proyectos por equipos', () => {
     reloj = new Date(t0.getTime() + 11 * 60_000);
     expect((await vale('GET', `/api/proyectos/${proyectoId}/tablero`)).json().estado).toBe('finalizado');
     expect((await vale('POST', `/api/alumno/proyectos/${proyectoId}/entregar`, { respuestas: [] })).statusCode).toBe(400);
+  });
+
+  it('modo individual: cada alumno juega solo, el que llega tarde entra y se cierra con el tiempo', async () => {
+    const { docente, vale, diego, otro, aula, ids } = await preparar();
+    const preguntas = ['b-m1-01', 'b-m1-04', 'b-m2-01'];
+    const { id } = (await docente('POST', '/api/docente/proyectos', { aulaId: aula.id, nombre: 'Práctica de hoy', duracionMin: 30, modo: 'individual', preguntas })).json();
+    await docente('POST', `/api/docente/proyectos/${id}/accion`, { accion: 'abrir' });
+    let t = (await docente('GET', `/api/proyectos/${id}/tablero`)).json();
+    expect(t.modo).toBe('individual');
+    expect(t.equipos.map((e: { nombre: string }) => e.nombre).sort()).toEqual(['Diego Santamaría', 'Valeria Mendoza']);
+    const t0 = new Date();
+    reloj = t0;
+    await docente('POST', `/api/docente/proyectos/${id}/accion`, { accion: 'iniciar' });
+    // «Otro» se une al aula cuando la actividad ya empezó: la ve en su lista y puede jugar.
+    expect((await otro('GET', '/api/alumno/proyectos')).json().proyectos).toHaveLength(0);
+    await otro('POST', '/api/alumno/aulas/unirse', { codigo: aula.codigo });
+    const lista = (await otro('GET', '/api/alumno/proyectos')).json().proyectos;
+    expect(lista).toHaveLength(1);
+    expect(lista[0].estado).toBe('en_curso');
+    expect((await otro('GET', `/api/alumno/proyectos/${id}`)).json().preguntasJuego).toHaveLength(3);
+
+    const completas = lab.proyectos.detalleDocente(lab.usuario(lab.aulas.aula(aula.id)!.docenteId)!, id).preguntasCompletas;
+    const bien = completas.map((p) => ({ preguntaId: p.id, respuesta: respuestaCorrecta(p) }));
+    reloj = new Date(t0.getTime() + 60_000);
+    expect((await vale('POST', `/api/alumno/proyectos/${id}/entregar`, { respuestas: bien })).json().entrega.aciertos).toBe(3);
+    reloj = new Date(t0.getTime() + 90_000);
+    await diego('POST', `/api/alumno/proyectos/${id}/entregar`, { respuestas: bien });
+    reloj = new Date(t0.getTime() + 120_000);
+    await otro('POST', `/api/alumno/proyectos/${id}/entregar`, { respuestas: [] });
+    // Aunque entregaron todos, en individual sigue abierta hasta que acabe el tiempo.
+    expect((await docente('GET', `/api/proyectos/${id}/tablero`)).json().estado).toBe('en_curso');
+    // Un compañero no puede entregar dos veces.
+    expect((await vale('POST', `/api/alumno/proyectos/${id}/entregar`, { respuestas: bien })).statusCode).toBe(409);
+    reloj = new Date(t0.getTime() + 31 * 60_000);
+    t = (await docente('GET', `/api/proyectos/${id}/tablero`)).json();
+    expect(t.estado).toBe('finalizado');
+    expect(t.equipos.map((e: { nombre: string }) => e.nombre)).toEqual(['Valeria Mendoza', 'Diego Santamaría', 'Otro Alumno']);
+    expect(t.equipos[0].miembros[0].id).toBe(ids.vale);
+    // Después de cerrar, ya no se puede responder.
+    expect((await otro('POST', `/api/alumno/proyectos/${id}/entregar`, { respuestas: bien })).statusCode).toBe(400);
+  });
+
+  it('por equipos: el alumno que se une tarde entra al equipo con menos integrantes', async () => {
+    const { docente, otro, aula, ids } = await preparar();
+    lab.crearUsuario({ rol: 'estudiante', nombre: 'Ana Trujillo', correo: 'ana@udh.edu.pe', clave: 'alumno-123' });
+    const ana = await cliente('ana@udh.edu.pe', 'alumno-123');
+    await ana('POST', '/api/alumno/aulas/unirse', { codigo: aula.codigo });
+    const idAna = (lab.db.prepare('SELECT id FROM usuarios WHERE correo = ?').get('ana@udh.edu.pe') as { id: string }).id;
+    const { id } = (
+      await docente('POST', '/api/docente/proyectos', {
+        aulaId: aula.id,
+        nombre: 'Reto',
+        duracionMin: 10,
+        preguntas: ['b-m1-01'],
+        equipos: [
+          { nombre: 'Turquesa', miembros: [ids.vale, idAna] },
+          { nombre: 'Ámbar', miembros: [ids.diego] },
+        ],
+      })
+    ).json();
+    await docente('POST', `/api/docente/proyectos/${id}/accion`, { accion: 'abrir' });
+    await otro('POST', '/api/alumno/aulas/unirse', { codigo: aula.codigo });
+    const r = (await otro('GET', `/api/alumno/proyectos/${id}`)).json();
+    expect(r.miEquipo.nombre).toBe('Ámbar');
+  });
+});
+
+describe('registro de alumnos desde el login', () => {
+  it('solo crea estudiantes, con correo institucional, y puede unirse a un aula de una vez', async () => {
+    const { aula } = await preparar();
+    const anon = await cliente();
+    expect((await anon('GET', '/api/registro')).json()).toEqual({ abierto: true, dominio: 'udh.edu.pe' });
+    // Aunque intente mandar rol «docente» o «admin», la cuenta es de estudiante.
+    const r = await anon('POST', '/api/registro', { nombre: 'Rosa Nueva Ccori', correo: '2025123456@udh.edu.pe', clave: 'clave-segura', rol: 'admin', codigoAula: aula.codigo.toLowerCase() });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().usuario.rol).toBe('estudiante');
+    expect(r.json().aula.nombre).toBe('Auditoría – Sección A');
+    expect(lab.db.prepare('SELECT codigo FROM usuarios WHERE correo = ?').get('2025123456@udh.edu.pe')).toEqual({ codigo: '2025123456' });
+    // Queda con sesión abierta.
+    const cookie = String(r.headers['set-cookie']).split(';')[0];
+    const yo = await app.inject({ method: 'GET', url: '/api/yo', headers: { cookie } });
+    expect(yo.json().usuario.nombre).toBe('Rosa Nueva Ccori');
+    // Validaciones.
+    expect((await anon('POST', '/api/registro', { nombre: 'Otra Persona', correo: 'alguien@gmail.com', clave: 'clave-segura' })).statusCode).toBe(400);
+    expect((await anon('POST', '/api/registro', { nombre: 'Otra Persona', correo: '2025123456@udh.edu.pe', clave: 'clave-segura' })).statusCode).toBe(409);
+    expect((await anon('POST', '/api/registro', { nombre: 'Otra Persona', correo: '2025999999@udh.edu.pe', clave: 'corta' })).statusCode).toBe(400);
+    // Un código de aula que no existe no deja una cuenta a medias.
+    expect((await anon('POST', '/api/registro', { nombre: 'Otra Persona', correo: '2025888888@udh.edu.pe', clave: 'clave-segura', codigoAula: 'AUD-ZZZZ' })).statusCode).toBe(404);
+    expect(lab.db.prepare('SELECT 1 FROM usuarios WHERE correo = ?').get('2025888888@udh.edu.pe')).toBeUndefined();
   });
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowLeft,
@@ -32,6 +32,7 @@ import {
   MissionRunResult,
 } from '../types/audit';
 import { soundFx } from '../utils/soundFx';
+import { XP_CLASIFICACION, XP_RUPTURA } from '../lib/reglas';
 import { DocumentPaper } from './DocumentPaper';
 import { ResilientImage } from './ResilientImage';
 import { TaxCalculator } from './TaxCalculator';
@@ -74,6 +75,8 @@ export const AuditRoom: React.FC<AuditRoomProps> = ({
   // Game HUD State: Fiscal Shield, Combo & Floating Callouts
   const [fiscalIntegrity, setFiscalIntegrity] = useState(100);
   const [combo, setCombo] = useState(0);
+  /** Bonos que ya se dieron (validar la clasificación o sellar una ruptura solo suma la primera vez). */
+  const premiados = useRef(new Set<string>());
   const [maxCombo, setMaxCombo] = useState(0);
   const [shieldShake, setShieldShake] = useState(false);
   const [callout, setCallout] = useState<{ id: number; text: string; tone: 'good' | 'bad' } | null>(
@@ -268,7 +271,9 @@ export const AuditRoom: React.FC<AuditRoomProps> = ({
       (d) => docBuckets[d.id] === d.correctBucket
     ).length;
     if (correctCount === mission.documents.length) {
-      triggerPositiveHit(80, 'Archivo clasificado');
+      if (premiados.current.has('clasificacion')) return;
+      premiados.current.add('clasificacion');
+      triggerPositiveHit(XP_CLASIFICACION, 'Archivo clasificado');
     } else {
       triggerShieldDamage(10, `${correctCount}/${mission.documents.length} correctos`);
     }
@@ -282,7 +287,9 @@ export const AuditRoom: React.FC<AuditRoomProps> = ({
 
     if (nextVal && edge.isBroken) {
       soundFx.playStamp();
-      triggerPositiveHit(60, 'Ruptura sellada');
+      if (premiados.current.has(edgeId)) return;
+      premiados.current.add(edgeId);
+      triggerPositiveHit(XP_RUPTURA, 'Ruptura sellada');
     } else if (nextVal && !edge.isBroken) {
       triggerShieldDamage(10, 'Vínculo sí tenía sustento');
     }
@@ -347,10 +354,8 @@ export const AuditRoom: React.FC<AuditRoomProps> = ({
       mission.decisions.length > 0 ? decisionsOptimal / mission.decisions.length : 1,
       dossierScorePercent / 100,
     ];
-    const accuracyPercent = Math.min(
-      100,
-      Math.max(25, Math.round((components.reduce((a, b) => a + b, 0) / components.length) * 100))
-    );
+    // Sin pisos artificiales: un expediente vacío no puede dar puntaje (antes daba 25 % y 140 XP como mínimo).
+    const accuracyPercent = Math.min(100, Math.max(0, Math.round((components.reduce((a, b) => a + b, 0) / components.length) * 100)));
 
     const rankGrade: MissionRunResult['rankGrade'] =
       accuracyPercent >= 90 && fiscalIntegrity >= 85
@@ -361,11 +366,9 @@ export const AuditRoom: React.FC<AuditRoomProps> = ({
         ? 'B'
         : 'C';
 
-    const shieldBonus = Math.round(fiscalIntegrity * 0.8);
-    const totalXp = Math.max(
-      140,
-      Math.round(mission.xpReward * (accuracyPercent / 100)) + sessionXp + shieldBonus
-    );
+    // El bono del escudo fiscal premia no equivocarse, pero solo en proporción a lo que se resolvió.
+    const shieldBonus = Math.round(fiscalIntegrity * 0.8 * (accuracyPercent / 100));
+    const totalXp = Math.max(0, Math.round(mission.xpReward * (accuracyPercent / 100)) + sessionXp + shieldBonus);
 
     const strengths: string[] = [];
     const improvements: string[] = [];

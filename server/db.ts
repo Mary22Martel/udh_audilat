@@ -9,7 +9,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { AUDITOR_LEVELS, getLevelForXp } from '../src/data/academyData';
 import { INITIAL_MISSIONS } from '../src/data/missionsData';
-import { MISIONES_ACTIVAS, REGLAS_INSIGNIAS, mejorPorMision, promedioCompetencias, rachaDias, xpTotal } from '../src/lib/reglas';
+import { MISIONES_ACTIVAS, REGLAS_INSIGNIAS, mejorPorMision, promedioCompetencias, rachaDias, xpMaximo, xpTotal } from '../src/lib/reglas';
 import type { MissionRunResult } from '../src/types/audit';
 import { Academia } from './modulos/academia';
 import { Aulas } from './modulos/aulas';
@@ -142,7 +142,7 @@ function validarResultado(r: MissionRunResult): MissionRunResult {
   const dossier = Number(r.dossierScorePercent);
   const xp = Number(r.xpEarned);
   if (!(acc >= 0 && acc <= 100) || !(dossier >= 0 && dossier <= 100)) throw new ErrorApp('Porcentaje fuera de rango.');
-  if (!(xp >= 0 && xp <= mision.xpReward * 2)) throw new ErrorApp('XP fuera de rango.');
+  if (!(xp >= 0 && xp <= xpMaximo(mision))) throw new ErrorApp('XP fuera de rango.');
   if (!['S', 'A', 'B', 'C'].includes(r.rankGrade)) throw new ErrorApp('Rango no válido.');
   return r;
 }
@@ -354,6 +354,27 @@ export class AuditLab {
 
   // --- Sesiones -------------------------------------------------------------------------------------------------
 
+  /**
+   * Registro desde el login: SOLO crea cuentas de estudiante (las de docente y admin las crea el administrador).
+   * Si se configura un dominio (por defecto «udh.edu.pe»), solo se aceptan correos de ese dominio.
+   * Puede traer el código de un aula para unirse de una vez.
+   */
+  registrarAlumno(datos: { nombre?: string; correo?: string; clave?: string; codigoAula?: string }, dominio: string | null) {
+    const correo = validarCorreo(datos.correo ?? '');
+    if (dominio && !correo.endsWith(`@${dominio}`)) throw new ErrorApp(`Usa tu correo institucional (@${dominio}).`);
+    const aula = datos.codigoAula?.trim() ? this.aulas.porCodigo(datos.codigoAula) : null;
+    const local = correo.split('@')[0];
+    const { usuario } = this.crearUsuario({
+      rol: 'estudiante',
+      nombre: datos.nombre ?? '',
+      correo,
+      clave: String(datos.clave ?? ''),
+      codigo: /^\d{6,}$/.test(local) ? local : null,
+      aulaId: aula?.id ?? null,
+    });
+    return { usuario, aula: aula ? { id: aula.id, nombre: aula.nombre } : null };
+  }
+
   ingresar(correo: string, clave: string): { token: string; usuario: Usuario } {
     const c = String(correo ?? '').trim().toLowerCase();
     const f = this.db.prepare('SELECT * FROM usuarios WHERE correo = ?').get(c) as FilaUsuario | undefined;
@@ -428,6 +449,27 @@ export class AuditLab {
       precision: mejores.length ? Math.round(mejores.reduce((s, x) => s + x.accuracyPercent, 0) / mejores.length) : null,
       ultima: r[0]?.fechaIso ?? null,
     };
+  }
+
+  /** Cómo les va en cada misión a un grupo de alumnos (para el docente, por aula). */
+  misionesDeAlumnos(alumnoIds: string[]) {
+    const mejores = alumnoIds.map((id) => mejorPorMision(this.resultados(id)));
+    return INITIAL_MISSIONS.filter((m) => (MISIONES_ACTIVAS as readonly string[]).includes(m.id)).map((m) => {
+      const r = mejores.map((x) => x.get(m.id)).filter((x): x is MissionRunResult => !!x);
+      const prom = (f: (x: MissionRunResult) => number) => (r.length ? Math.round(r.reduce((s, x) => s + f(x), 0) / r.length) : null);
+      return {
+        id: m.id,
+        numero: m.number,
+        titulo: m.title,
+        empresa: m.companyName,
+        alumnos: alumnoIds.length,
+        resolvieron: r.length,
+        precision: prom((x) => x.accuracyPercent),
+        hallazgos: prom((x) => (x.anomaliesTotal ? (x.anomaliesFound / x.anomaliesTotal) * 100 : 0)),
+        xpPromedio: prom((x) => x.xpEarned),
+        minutos: prom((x) => x.durationSeconds / 60),
+      };
+    });
   }
 
   estadoAlumno(usuarioId: string) {
@@ -520,6 +562,12 @@ export class AuditLab {
       const aula = this.aulas.aula(aulaId);
       return { tipo, aula: aula ? { id: aula.id, nombre: aula.nombre } : null, puestos: this.ordenar(usuario, alumnos, 'academia') };
     }
+    // Misiones: general para todos; si se pide un aula (vista del docente), solo sus alumnos.
+    if (opciones.aulaId) {
+      this.aulas.exigirAcceso(usuario, opciones.aulaId);
+      const aula = this.aulas.aula(opciones.aulaId);
+      return { tipo, aula: aula ? { id: aula.id, nombre: aula.nombre } : null, puestos: this.ordenar(usuario, this.aulas.filasAlumnos(opciones.aulaId), 'misiones') };
+    }
     alumnos = this.db.prepare("SELECT * FROM usuarios WHERE rol = 'estudiante' AND activo = 1").all() as unknown as FilaUsuario[];
     return { tipo, aula: null, puestos: this.ordenar(usuario, alumnos, 'misiones') };
   }
@@ -591,7 +639,22 @@ export class AuditLab {
       intentosMisiones,
       academia: this.academia.resumenGeneral(),
       actividad,
-      aulas: this.aulas.todas(),
+      aulas: this.aulas.todas().map((a) => {
+        const ids = this.aulas.filasAlumnos(a.id).map((f) => f.id);
+        const seg = this.academia.seguimiento(ids);
+        const casos = ids.map((id) => this.resumenMisiones(id).casos);
+        const activos = seg.alumnos.filter((x) => x.ultimaActividad && x.ultimaActividad >= semana).length;
+        return {
+          ...a,
+          precision: seg.precision,
+          leccionesPromedio: seg.leccionesPromedio,
+          misionesPromedio: ids.length ? Math.round((casos.reduce((s, n) => s + n, 0) / ids.length) * 10) / 10 : 0,
+          activosSemana: activos,
+          preguntasDocente: (
+            this.db.prepare('SELECT COUNT(*) AS n FROM preguntas WHERE autor_id = ? AND activo = 1 AND base = 0 AND (aula_id IS NULL OR aula_id = ?)').get(a.docenteId, a.id) as { n: number }
+          ).n,
+        };
+      }),
       proyectos: this.proyectos.contar(),
       misiones: INITIAL_MISSIONS.map((m) => ({
         id: m.id,

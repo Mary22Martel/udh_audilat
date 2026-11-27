@@ -22,57 +22,69 @@ interface Props {
 
 const num = (s: string) => Number(String(s).replace(/[^\d.-]/g, '')) || 0;
 
+interface CtxDato {
+  modo: NonNullable<Props['modo']>;
+  marcados: string[];
+  errores: string[];
+  onCampo?: (k: string) => void;
+  interactivo: boolean;
+}
+
+/** Envuelve un dato para poder tocarlo y mostrar su sello. Va fuera de «Comprobante» para no volver a crearse en cada actualización. */
+function D({ x, k, children, className = '' }: { x: CtxDato; k: string; children: ReactNode; className?: string }) {
+const { modo, marcados, errores, onCampo, interactivo } = x;
+  const marcado = marcados.includes(k);
+  const esError = errores.includes(k);
+  let estilo = '';
+  let sello: ReactNode = null;
+  if (modo === 'marcar' || modo === 'errores') {
+    estilo = marcado
+      ? 'bg-rose-100 ring-2 ring-rose-500 text-rose-950'
+      : 'hover:bg-amber-100 hover:ring-1 hover:ring-amber-500 cursor-pointer';
+    if (marcado)
+      sello = (
+        <motion.span
+          initial={{ scale: 1.8, opacity: 0, rotate: -18 }}
+          animate={{ scale: 1, opacity: 1, rotate: -8 }}
+          className="absolute -top-3 -right-2 px-1.5 py-[1px] rounded border-2 border-rose-600 text-rose-700 bg-white/90 text-[9px] font-black tracking-wider pointer-events-none"
+        >
+          {modo === 'errores' ? 'ERROR' : 'OBSERVADO'}
+        </motion.span>
+      );
+  } else if (modo === 'revelar') {
+    if (esError && marcado) {
+      estilo = 'bg-emerald-100 ring-2 ring-emerald-600';
+      sello = <span className="absolute -top-3 -right-2 px-1.5 rounded border-2 border-emerald-700 text-emerald-800 bg-white text-[9px] font-black">✓ DETECTADO</span>;
+    } else if (esError) {
+      estilo = 'bg-amber-100 ring-2 ring-amber-500';
+      sello = <span className="absolute -top-3 -right-2 px-1.5 rounded border-2 border-amber-600 text-amber-700 bg-white text-[9px] font-black">ERA EL ERROR</span>;
+    } else if (marcado) {
+      estilo = 'bg-rose-50 ring-1 ring-rose-400 line-through decoration-rose-500';
+      sello = <span className="absolute -top-3 -right-2 px-1.5 rounded border border-rose-500 text-rose-600 bg-white text-[9px] font-bold">NO ERA</span>;
+    }
+  }
+  const contenido = (
+    <span className={`relative inline-block rounded px-1 -mx-1 transition-colors ${estilo} ${className}`}>
+      {children || <span className="text-slate-300">—</span>}
+      {sello}
+    </span>
+  );
+  return interactivo ? (
+    <button type="button" onClick={() => onCampo?.(k)} className="text-left align-baseline" title="Tocar para marcar">
+      {contenido}
+    </button>
+  ) : (
+    contenido
+  );
+}
+
 export function Comprobante({ c, modo = 'ver', marcados = [], errores = [], onCampo, compacto = false }: Props) {
   const campos = CAMPOS_COMPROBANTE[c.tipo];
   const tiene = (k: string) => campos.some((f) => f.clave === k);
   const interactivo = modo === 'marcar' || modo === 'errores';
 
-  /** Envuelve un dato para poder tocarlo y mostrar su sello. */
-  const D = ({ k, children, className = '' }: { k: string; children: ReactNode; className?: string }) => {
-    const marcado = marcados.includes(k);
-    const esError = errores.includes(k);
-    let estilo = '';
-    let sello: ReactNode = null;
-    if (modo === 'marcar' || modo === 'errores') {
-      estilo = marcado
-        ? 'bg-rose-100 ring-2 ring-rose-500 text-rose-950'
-        : 'hover:bg-amber-100 hover:ring-1 hover:ring-amber-500 cursor-pointer';
-      if (marcado)
-        sello = (
-          <motion.span
-            initial={{ scale: 1.8, opacity: 0, rotate: -18 }}
-            animate={{ scale: 1, opacity: 1, rotate: -8 }}
-            className="absolute -top-3 -right-2 px-1.5 py-[1px] rounded border-2 border-rose-600 text-rose-700 bg-white/90 text-[9px] font-black tracking-wider pointer-events-none"
-          >
-            {modo === 'errores' ? 'ERROR' : 'OBSERVADO'}
-          </motion.span>
-        );
-    } else if (modo === 'revelar') {
-      if (esError && marcado) {
-        estilo = 'bg-emerald-100 ring-2 ring-emerald-600';
-        sello = <span className="absolute -top-3 -right-2 px-1.5 rounded border-2 border-emerald-700 text-emerald-800 bg-white text-[9px] font-black">✓ DETECTADO</span>;
-      } else if (esError) {
-        estilo = 'bg-amber-100 ring-2 ring-amber-500';
-        sello = <span className="absolute -top-3 -right-2 px-1.5 rounded border-2 border-amber-600 text-amber-700 bg-white text-[9px] font-black">ERA EL ERROR</span>;
-      } else if (marcado) {
-        estilo = 'bg-rose-50 ring-1 ring-rose-400 line-through decoration-rose-500';
-        sello = <span className="absolute -top-3 -right-2 px-1.5 rounded border border-rose-500 text-rose-600 bg-white text-[9px] font-bold">NO ERA</span>;
-      }
-    }
-    const contenido = (
-      <span className={`relative inline-block rounded px-1 -mx-1 transition-colors ${estilo} ${className}`}>
-        {children || <span className="text-slate-300">—</span>}
-        {sello}
-      </span>
-    );
-    return interactivo ? (
-      <button type="button" onClick={() => onCampo?.(k)} className="text-left align-baseline" title="Tocar para marcar">
-        {contenido}
-      </button>
-    ) : (
-      contenido
-    );
-  };
+  const x: CtxDato = { modo, marcados, errores, onCampo, interactivo };
+
 
   const v = (k: string) => c.campos[k] ?? '';
   const esNC = c.tipo === 'nota_credito';
@@ -84,24 +96,24 @@ export function Comprobante({ c, modo = 'ver', marcados = [], errores = [], onCa
       <div className="flex flex-col sm:flex-row gap-4 justify-between">
         <div className="space-y-0.5 min-w-0">
           <p className="font-bold text-slate-900 text-[1.1em]">
-            <D k="emisorRazon">{v('emisorRazon')}</D>
+            <D x={x} k="emisorRazon">{v('emisorRazon')}</D>
           </p>
           {tiene('emisorDireccion') && (
             <p className="text-slate-500">
-              <D k="emisorDireccion">{v('emisorDireccion')}</D>
+              <D x={x} k="emisorDireccion">{v('emisorDireccion')}</D>
             </p>
           )}
           <p className="text-slate-500">
-            Fecha: <D k="fecha">{v('fecha')}</D>
+            Fecha: <D x={x} k="fecha">{v('fecha')}</D>
           </p>
         </div>
         <div className={`shrink-0 border-2 rounded-lg px-4 py-2 text-center ${acento}`}>
           <p className="font-mono font-bold">
-            RUC <D k="emisorRuc">{v('emisorRuc')}</D>
+            RUC <D x={x} k="emisorRuc">{v('emisorRuc')}</D>
           </p>
           <p className="font-black uppercase tracking-wide text-[0.95em] mt-0.5">{NOMBRE_COMPROBANTE[c.tipo]}</p>
           <p className="font-mono font-bold mt-0.5">
-            <D k="serie">{v('serie')}</D>
+            <D x={x} k="serie">{v('serie')}</D>
           </p>
         </div>
       </div>
@@ -113,7 +125,7 @@ export function Comprobante({ c, modo = 'ver', marcados = [], errores = [], onCa
           .map((f) => (
             <p key={f.clave} className="min-w-0">
               <span className="text-slate-500">{f.etiqueta}: </span>
-              <D k={f.clave} className="font-medium text-slate-900">
+              <D x={x} k={f.clave} className="font-medium text-slate-900">
                 {v(f.clave)}
               </D>
             </p>
@@ -135,14 +147,14 @@ export function Comprobante({ c, modo = 'ver', marcados = [], errores = [], onCa
             {c.items.map((it, i) => (
               <tr key={i} className="border-b border-slate-100">
                 <td className="py-1.5 pr-2 font-mono">
-                  <D k={`item${i}.cantidad`}>{it.cantidad}</D>
+                  <D x={x} k={`item${i}.cantidad`}>{it.cantidad}</D>
                 </td>
                 <td className="py-1.5 pr-2">
-                  <D k={`item${i}.descripcion`}>{it.descripcion}</D>
+                  <D x={x} k={`item${i}.descripcion`}>{it.descripcion}</D>
                 </td>
                 {c.tipo !== 'guia_remision' && (
                   <td className="py-1.5 pr-2 text-right font-mono">
-                    <D k={`item${i}.valorUnitario`}>{it.valorUnitario}</D>
+                    <D x={x} k={`item${i}.valorUnitario`}>{it.valorUnitario}</D>
                   </td>
                 )}
                 {c.tipo !== 'guia_remision' && <td className="py-1.5 text-right font-mono text-slate-600">{(num(it.cantidad) * num(it.valorUnitario)).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>}
@@ -161,7 +173,7 @@ export function Comprobante({ c, modo = 'ver', marcados = [], errores = [], onCa
               .map((f, i, arr) => (
                 <p key={f.clave} className={`flex justify-between gap-3 ${i === arr.length - 1 ? 'font-bold text-slate-900 border-t border-slate-300 pt-1' : ''}`}>
                   <span className="text-slate-500">{f.etiqueta}</span>
-                  <D k={f.clave} className="font-mono whitespace-nowrap">
+                  <D x={x} k={f.clave} className="font-mono whitespace-nowrap">
                     {v(f.clave)}
                   </D>
                 </p>
@@ -175,7 +187,7 @@ export function Comprobante({ c, modo = 'ver', marcados = [], errores = [], onCa
         .map((f) => (
           <p key={f.clave} className="mt-3 text-slate-600">
             <span className="text-slate-500">{f.etiqueta}: </span>
-            <D k={f.clave}>{v(f.clave)}</D>
+            <D x={x} k={f.clave}>{v(f.clave)}</D>
           </p>
         ))}
 

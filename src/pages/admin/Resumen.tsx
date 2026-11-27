@@ -2,7 +2,7 @@ import { motion } from 'motion/react';
 import { Activity, AlertTriangle, ArrowRight, BookOpen, CheckCircle2, Clock, FileText, GraduationCap, Swords, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CajaError, Cargando, Cifra, Encabezado, Pagina, Tarjeta } from '../../components/ui';
+import { CajaError, Cargando, Cifra, Encabezado, Pagina, Tarjeta, colorNivel } from '../../components/ui';
 import { api, type ResumenAdmin } from '../../lib/api';
 
 function ActividadDoble({ datos }: { datos: ResumenAdmin['actividad'] }) {
@@ -74,42 +74,86 @@ export function Resumen() {
         </Tarjeta>
       )}
 
-      <div className="grid lg:grid-cols-12 gap-6">
-        <Tarjeta className="lg:col-span-7 overflow-hidden" retraso={0.1}>
-          <div className="px-6 pt-6 pb-3 flex items-center justify-between">
-            <h3 className="font-display font-bold">Aulas</h3>
-            <Link to="/admin/aulas" className="text-xs font-semibold text-[var(--c-teal)] hover:underline">Ver todas</Link>
+      <Tarjeta className="overflow-hidden" retraso={0.1}>
+        <div className="px-6 pt-6 pb-3 flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+          <div>
+            <h3 className="font-display font-bold">Avance por aula</h3>
+            <p className="text-xs text-[var(--c-suave)] mt-1">Cada docente ve solo sus aulas; aquí ves todas juntas para comparar.</p>
           </div>
-          {aulasActivas.length === 0 ? (
-            <p className="px-6 pb-6 text-sm text-[var(--c-suave)]">Todavía no hay aulas. Los docentes las crean desde su panel.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-[11px] uppercase tracking-wider text-[var(--c-suave)] border-y border-[var(--c-linea)]">
-                    <th className="px-6 py-3 font-semibold">Aula</th>
-                    <th className="px-4 py-3 font-semibold">Docente</th>
-                    <th className="px-4 py-3 font-semibold text-center">Alumnos</th>
-                    <th className="px-6 py-3" />
+          <Link to="/admin/aulas" className="text-xs font-semibold text-[var(--c-teal)] hover:underline">Ver todas</Link>
+        </div>
+        {aulasActivas.length === 0 ? (
+          <p className="px-6 pb-6 text-sm text-[var(--c-suave)]">Todavía no hay aulas. Los docentes las crean desde su panel.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wider text-[var(--c-suave)] border-y border-[var(--c-linea)]">
+                  <th className="px-6 py-3 font-semibold">Aula</th>
+                  <th className="px-4 py-3 font-semibold">Docente</th>
+                  <th className="px-3 py-3 font-semibold text-center">Alumnos</th>
+                  <th className="px-3 py-3 font-semibold text-center">Activos 7 días</th>
+                  <th className="px-3 py-3 font-semibold text-right">Aciertos Academia</th>
+                  <th className="px-3 py-3 font-semibold text-right">Lecciones prom.</th>
+                  <th className="px-3 py-3 font-semibold text-right">Misiones prom.</th>
+                  <th className="px-3 py-3 font-semibold text-center">Preguntas propias</th>
+                  <th className="px-6 py-3" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--c-linea)]">
+                {aulasActivas.slice(0, 10).map((a) => (
+                  <tr key={a.id}>
+                    <td className="px-6 py-3 font-medium">{a.nombre}</td>
+                    <td className="px-4 py-3 text-[var(--c-suave)]">{a.docente}</td>
+                    <td className="px-3 py-3 text-center font-mono">{a.alumnos}</td>
+                    <td className="px-3 py-3 text-center font-mono">
+                      {a.activosSemana}/{a.alumnos}
+                    </td>
+                    <td className="px-3 py-3 text-right font-mono font-bold" style={{ color: colorNivel(a.precision) }}>
+                      {a.precision === null ? '—' : `${a.precision} %`}
+                    </td>
+                    <td className="px-3 py-3 text-right font-mono">{a.leccionesPromedio} / 12</td>
+                    <td className="px-3 py-3 text-right font-mono">{a.misionesPromedio}</td>
+                    <td className="px-3 py-3 text-center font-mono">{a.preguntasDocente}</td>
+                    <td className="px-6 py-3 text-right">
+                      <Link to={`/admin/aulas/${a.id}`} className="text-xs font-semibold text-[var(--c-teal)] hover:underline whitespace-nowrap">
+                        Ver avance
+                      </Link>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--c-linea)]">
-                  {aulasActivas.slice(0, 8).map((a) => (
-                    <tr key={a.id}>
-                      <td className="px-6 py-3 font-medium">{a.nombre}</td>
-                      <td className="px-4 py-3 text-[var(--c-suave)]">{a.docente}</td>
-                      <td className="px-4 py-3 text-center font-mono">{a.alumnos}</td>
-                      <td className="px-6 py-3 text-right">
-                        <Link to={`/admin/aulas/${a.id}`} className="text-xs font-semibold text-[var(--c-teal)] hover:underline whitespace-nowrap">
-                          Ver avance
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Tarjeta>
+
+      <div className="grid lg:grid-cols-12 gap-6">
+        <Tarjeta className="lg:col-span-7 p-6 space-y-4" retraso={0.12}>
+          <div>
+            <h3 className="font-display font-bold">Academia en todo el sistema</h3>
+            <p className="text-xs text-[var(--c-suave)] mt-1">
+              Respuestas correctas de todos los alumnos en cada módulo · {r.academia.leccionesPromedio} lecciones completadas por alumno en promedio.
+            </p>
+          </div>
+          <div className="space-y-3.5">
+            {r.academia.dominio.map((d, i) => (
+              <div key={d.moduloId}>
+                <div className="flex items-baseline justify-between gap-3 text-sm">
+                  <span>
+                    <span className="font-mono text-[11px] text-[var(--c-teal)] mr-2">M{d.numero}</span>
+                    <span className="font-medium">{d.titulo}</span>
+                  </span>
+                  <span className="text-xs font-mono shrink-0" style={{ color: colorNivel(d.precision) }}>
+                    {d.precision === null ? 'sin datos' : `${d.precision} %`} · {d.completaron} lo terminaron
+                  </span>
+                </div>
+                <div className="mt-1.5 h-2 rounded-full bg-[var(--c-hondo)] overflow-hidden">
+                  <motion.div className="h-full rounded-full" style={{ background: colorNivel(d.precision) }} initial={{ width: 0 }} animate={{ width: `${d.precision ?? 0}%` }} transition={{ duration: 0.7, delay: i * 0.05 }} />
+                </div>
+              </div>
+            ))}
+          </div>
         </Tarjeta>
         <Tarjeta className="lg:col-span-5 p-6 space-y-4" retraso={0.15}>
           <h3 className="font-display font-bold">Uso de los últimos 14 días</h3>
@@ -128,6 +172,17 @@ export function Resumen() {
               <p className="text-[10px] text-[var(--c-suave)]">retos por equipos</p>
             </div>
           </div>
+          {r.academia.porDocente.length > 0 && (
+            <div className="pt-2 space-y-2">
+              <p className="text-xs font-semibold text-[var(--c-suave)]">Preguntas propias de los docentes (solo para sus aulas)</p>
+              {r.academia.porDocente.map((d) => (
+                <div key={d.id} className="flex items-center justify-between text-sm px-3 py-2 rounded-xl bg-[var(--c-fondo)]">
+                  <span>{d.nombre}</span>
+                  <span className="font-mono font-bold">{d.n}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </Tarjeta>
       </div>
 
@@ -140,7 +195,7 @@ export function Resumen() {
           <div className="space-y-2.5">
             {[
               { ok: true, t: 'Cuentas, aulas con código y acceso por rol', d: 'Administrador, docente y estudiante con progreso guardado en el servidor.' },
-              { ok: true, t: `Academia: ${r.academia.preguntas} preguntas activas`, d: `6 módulos y 12 lecciones · ${r.academia.preguntasDocentes} preguntas creadas por docentes.` },
+              { ok: true, t: `Academia: ${r.academia.preguntas} preguntas activas`, d: `6 módulos y 12 lecciones · ${r.academia.preguntasDocentes} preguntas de docentes, que solo ven los alumnos de sus aulas.` },
               { ok: true, t: `Proyectos por equipos (${r.proyectos.total})`, d: 'Retos en vivo con preguntas y casos de comprobantes.' },
               { ok: true, t: `Misiones activas (${activas.length})`, d: activas.map((m) => `${m.numero.replace(/misi[oó]n\s*/i, 'M')} (${m.resolvieron})`).join(' · ') + ' — práctica libre' },
               { ok: false, t: `Misiones en preparación (${enPrep.length})`, d: enPrep.map((m) => m.titulo).join(' · ') },

@@ -1,8 +1,11 @@
 /**
- * Proyectos por equipos: el docente arma un reto con preguntas y casos de comprobantes, forma equipos
- * y lo juega en vivo. Gana el equipo con más aciertos; si empatan, el que entregó antes.
+ * Actividades en vivo del aula: el docente arma un reto con preguntas y casos de comprobantes y lo juega en clase.
+ *  - modo «individual»: cada alumno responde solo (como un Kahoot). Por dentro, cada alumno es un «equipo» de uno.
+ *  - modo «equipos»: el docente forma equipos y entrega uno por equipo.
+ * Gana quien tiene más aciertos; si empatan, quien entregó antes. Al acabarse el tiempo se cierra solo.
+ * Los alumnos que se unen al aula tarde entran solos (en individual, con su propio puesto; en equipos, al equipo más chico).
  *
- * Estados: preparacion → sala (equipos ven la sala de espera) → en_curso → finalizado.
+ * Estados: preparacion → sala (ven la sala de espera) → en_curso → finalizado.
  */
 import { randomUUID } from 'node:crypto';
 import { calificar, sinRespuestas, type Pregunta } from '../../src/lib/preguntas';
@@ -10,6 +13,7 @@ import { ErrorApp, type AuditLab, type Usuario } from '../db';
 import type { RespuestaEnviada } from './academia';
 
 export type EstadoProyecto = 'preparacion' | 'sala' | 'en_curso' | 'finalizado';
+export type ModoProyecto = 'individual' | 'equipos';
 
 export const COLORES_EQUIPO = ['#48a6a7', '#f2b632', '#e4572e', '#8e7dbe', '#3fa34d', '#2d7dd2', '#d1495b', '#6c757d'];
 export const NOMBRES_EQUIPO = ['Equipo Turquesa', 'Equipo Ámbar', 'Equipo Coral', 'Equipo Lavanda', 'Equipo Esmeralda', 'Equipo Zafiro', 'Equipo Granate', 'Equipo Grafito'];
@@ -23,6 +27,7 @@ interface FilaProyecto {
   descripcion: string;
   duracion_min: number;
   estado: EstadoProyecto;
+  modo: ModoProyecto;
   preguntas: string;
   inicio: string | null;
   fin: string | null;
@@ -34,8 +39,9 @@ export interface DatosProyecto {
   nombre: string;
   descripcion?: string;
   duracionMin: number;
+  modo?: ModoProyecto;
   preguntas: string[];
-  equipos: { nombre: string; color?: string; miembros: string[] }[];
+  equipos?: { nombre: string; color?: string; miembros: string[] }[];
 }
 
 export class Proyectos {
@@ -80,6 +86,41 @@ export class Proyectos {
         UNIQUE (proyecto_id, equipo_id)
       );
     `);
+    const columnas = (lab.db.prepare('PRAGMA table_info(proyectos)').all() as { name: string }[]).map((c) => c.name);
+    if (!columnas.includes('modo')) lab.db.exec("ALTER TABLE proyectos ADD COLUMN modo TEXT NOT NULL DEFAULT 'equipos'");
+  }
+
+  /**
+   * Pone en la actividad a los alumnos del aula que todavía no están (los que se unieron tarde).
+   * En individual cada uno tiene su puesto; en equipos van al equipo con menos integrantes.
+   * Solo mientras la actividad no haya terminado.
+   */
+  private incluirAlumnos(f: FilaProyecto, soloAlumno?: string) {
+    if (f.estado === 'finalizado') return;
+    if (f.modo === 'equipos' && f.estado === 'preparacion') return;
+    const enAula = this.lab.aulas.filasAlumnos(f.aula_id).filter((a) => a.activo === 1 && (!soloAlumno || a.id === soloAlumno));
+    if (!enAula.length) return;
+    const actuales = this.equipos(f.id);
+    const dentro = new Set(actuales.flatMap((e) => e.miembros.map((m) => m.id)));
+    const faltan = enAula.filter((a) => !dentro.has(a.id));
+    if (!faltan.length) return;
+    if (f.modo === 'individual') {
+      let orden = actuales.length;
+      for (const a of faltan) {
+        const id = randomUUID();
+        this.lab.db.prepare('INSERT INTO equipos (id, proyecto_id, nombre, color, orden) VALUES (?, ?, ?, ?, ?)').run(id, f.id, a.nombre, COLORES_EQUIPO[orden % COLORES_EQUIPO.length], orden);
+        this.lab.db.prepare('INSERT INTO equipo_miembros (equipo_id, alumno_id) VALUES (?, ?)').run(id, a.id);
+        orden++;
+      }
+    } else {
+      if (!actuales.length) return;
+      const tam = new Map(actuales.map((e) => [e.id, e.miembros.length]));
+      for (const a of faltan) {
+        const destino = [...actuales].sort((x, y) => tam.get(x.id)! - tam.get(y.id)!)[0];
+        this.lab.db.prepare('INSERT INTO equipo_miembros (equipo_id, alumno_id) VALUES (?, ?)').run(destino.id, a.id);
+        tam.set(destino.id, tam.get(destino.id)! + 1);
+      }
+    }
   }
 
   private fila(id: string): FilaProyecto {
@@ -105,8 +146,11 @@ export class Proyectos {
       for (const m of eq.miembros)
         this.lab.avisar(m.id, {
           tipo: 'proyecto',
-          titulo: `Terminó «${f.nombre}»: ${eq.puesto === 1 ? '¡tu equipo ganó!' : `tu equipo quedó en el puesto ${eq.puesto}`}`,
-          texto: eq.entregado ? `${eq.aciertos} de ${eq.total} aciertos.` : 'Tu equipo no llegó a entregar.',
+          titulo:
+            f.modo === 'individual'
+              ? `Terminó «${f.nombre}»: ${eq.puesto === 1 ? '¡ganaste!' : `quedaste en el puesto ${eq.puesto}`}`
+              : `Terminó «${f.nombre}»: ${eq.puesto === 1 ? '¡tu equipo ganó!' : `tu equipo quedó en el puesto ${eq.puesto}`}`,
+          texto: eq.entregado ? `${eq.aciertos} de ${eq.total} aciertos.` : f.modo === 'individual' ? 'No llegaste a entregar.' : 'Tu equipo no llegó a entregar.',
           enlace: `/app/proyectos/${id}`,
         });
   }
@@ -139,6 +183,7 @@ export class Proyectos {
       aula: aula?.nombre ?? '',
       docente: aula?.docente ?? '',
       duracionMin: f.duracion_min,
+      modo: f.modo ?? 'equipos',
       estado: f.estado,
       inicio: f.inicio,
       fin: f.fin,
@@ -160,6 +205,14 @@ export class Proyectos {
   }
 
   delAlumno(alumnoId: string) {
+    // Primero, que entre a las actividades abiertas de sus aulas (por si se unió después de que se crearon).
+    const abiertas = this.lab.db
+      .prepare(
+        `SELECT p.* FROM proyectos p JOIN aula_alumnos a ON a.aula_id = p.aula_id
+         WHERE a.alumno_id = ? AND p.estado IN ('sala', 'en_curso')`
+      )
+      .all(alumnoId) as unknown as FilaProyecto[];
+    for (const f of abiertas) this.incluirAlumnos(this.refrescar(f), alumnoId);
     const filas = this.lab.db
       .prepare(
         `SELECT DISTINCT p.* FROM proyectos p JOIN equipos e ON e.proyecto_id = p.id JOIN equipo_miembros m ON m.equipo_id = e.id
@@ -191,9 +244,14 @@ export class Proyectos {
     if (!(dur >= 1 && dur <= 180)) throw new ErrorApp('La duración debe estar entre 1 y 180 minutos.');
     const preguntas = [...new Set(d.preguntas ?? [])];
     if (!preguntas.length) throw new ErrorApp('Agrega al menos una pregunta o caso.');
-    for (const id of preguntas) if (!this.lab.academia.pregunta(id)) throw new ErrorApp('Una de las preguntas ya no existe.');
-    const equipos = (d.equipos ?? []).filter((e) => e.miembros?.length);
-    if (equipos.length < 2) throw new ErrorApp('Forma al menos dos equipos con integrantes.');
+    for (const id of preguntas) {
+      if (!this.lab.academia.pregunta(id)) throw new ErrorApp('Una de las preguntas ya no existe.');
+      // El reto usa las preguntas del sistema y las del docente del aula (no las de otros docentes).
+      if (!this.lab.academia.visibleParaDocente(aula.docenteId, id)) throw new ErrorApp('Una de las preguntas es de otro docente.');
+    }
+    const modo: ModoProyecto = d.modo === 'individual' ? 'individual' : 'equipos';
+    const equipos = modo === 'individual' ? [] : (d.equipos ?? []).filter((e) => e.miembros?.length);
+    if (modo === 'equipos' && equipos.length < 2) throw new ErrorApp('Forma al menos dos equipos con integrantes.');
     const vistos = new Set<string>();
     for (const e of equipos)
       for (const m of e.miembros) {
@@ -201,10 +259,10 @@ export class Proyectos {
         if (vistos.has(m)) throw new ErrorApp('Un alumno está en dos equipos.');
         vistos.add(m);
       }
-    return { nombre, aula, dur, preguntas, equipos };
+    return { nombre, aula, dur, preguntas, equipos, modo };
   }
 
-  private guardarEquipos(proyectoId: string, equipos: DatosProyecto['equipos']) {
+  private guardarEquipos(proyectoId: string, equipos: NonNullable<DatosProyecto['equipos']>) {
     this.lab.db.prepare('DELETE FROM equipos WHERE proyecto_id = ?').run(proyectoId);
     equipos.forEach((e, i) => {
       const id = randomUUID();
@@ -219,8 +277,8 @@ export class Proyectos {
     const v = this.validar(u, d);
     const id = randomUUID();
     this.lab.db
-      .prepare('INSERT INTO proyectos (id, docente_id, aula_id, nombre, descripcion, duracion_min, preguntas, creado) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, v.aula.docenteId, v.aula.id, v.nombre, String(d.descripcion ?? '').trim(), v.dur, JSON.stringify(v.preguntas), this.lab.iso());
+      .prepare('INSERT INTO proyectos (id, docente_id, aula_id, nombre, descripcion, duracion_min, modo, preguntas, creado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, v.aula.docenteId, v.aula.id, v.nombre, String(d.descripcion ?? '').trim(), v.dur, v.modo, JSON.stringify(v.preguntas), this.lab.iso());
     this.guardarEquipos(id, v.equipos);
     return this.detalleDocente(u, id);
   }
@@ -228,11 +286,11 @@ export class Proyectos {
   actualizar(u: Usuario, id: string, d: DatosProyecto) {
     const f = this.fila(id);
     this.exigirDueno(u, f);
-    if (f.estado !== 'preparacion') throw new ErrorApp('Solo puedes editar un proyecto antes de abrir la sala.');
+    if (f.estado !== 'preparacion') throw new ErrorApp('Solo puedes editar la actividad antes de abrir la sala.');
     const v = this.validar(u, d);
     this.lab.db
-      .prepare('UPDATE proyectos SET aula_id = ?, nombre = ?, descripcion = ?, duracion_min = ?, preguntas = ? WHERE id = ?')
-      .run(v.aula.id, v.nombre, String(d.descripcion ?? '').trim(), v.dur, JSON.stringify(v.preguntas), id);
+      .prepare('UPDATE proyectos SET aula_id = ?, nombre = ?, descripcion = ?, duracion_min = ?, modo = ?, preguntas = ? WHERE id = ?')
+      .run(v.aula.id, v.nombre, String(d.descripcion ?? '').trim(), v.dur, v.modo, JSON.stringify(v.preguntas), id);
     this.guardarEquipos(id, v.equipos);
     return this.detalleDocente(u, id);
   }
@@ -240,32 +298,42 @@ export class Proyectos {
   eliminar(u: Usuario, id: string) {
     const f = this.fila(id);
     this.exigirDueno(u, f);
-    if (f.estado === 'en_curso') throw new ErrorApp('No puedes eliminar un proyecto en curso. Finalízalo primero.');
+    if (f.estado === 'en_curso') throw new ErrorApp('No puedes eliminar una actividad en curso. Finalízala primero.');
     this.lab.db.prepare('DELETE FROM proyectos WHERE id = ?').run(id);
   }
 
   accion(u: Usuario, id: string, accion: 'abrir' | 'iniciar' | 'finalizar' | 'reiniciar') {
     const f = this.fila(id);
     this.exigirDueno(u, f);
-    const miembros = this.equipos(id).flatMap((e) => e.miembros.map((m) => m.id));
     if (accion === 'abrir') {
       if (f.estado !== 'preparacion') throw new ErrorApp('La sala ya está abierta.');
       this.lab.db.prepare("UPDATE proyectos SET estado = 'sala' WHERE id = ?").run(id);
+      this.incluirAlumnos({ ...f, estado: 'sala' });
+      const miembros = this.equipos(id).flatMap((e) => e.miembros.map((m) => m.id));
       for (const m of miembros)
-        this.lab.avisar(m, { tipo: 'proyecto', titulo: `¡Competencia por equipos: «${f.nombre}»!`, texto: 'Entra a la sala de espera; tu docente dará inicio en unos minutos.', enlace: `/app/proyectos/${id}` });
+        this.lab.avisar(m, {
+          tipo: 'proyecto',
+          titulo: f.modo === 'individual' ? `¡Actividad en vivo: «${f.nombre}»!` : `¡Competencia por equipos: «${f.nombre}»!`,
+          texto: 'Entra a la sala de espera; tu docente dará inicio en unos minutos.',
+          enlace: `/app/proyectos/${id}`,
+        });
     } else if (accion === 'iniciar') {
-      if (f.estado !== 'sala' && f.estado !== 'preparacion') throw new ErrorApp('El proyecto ya empezó o terminó.');
+      if (f.estado !== 'sala' && f.estado !== 'preparacion') throw new ErrorApp('La actividad ya empezó o terminó.');
+      this.incluirAlumnos({ ...f, estado: 'sala' });
+      if (!this.equipos(id).length) throw new ErrorApp('Todavía no hay alumnos en el aula. Comparte el código para que se unan.');
       const inicio = this.lab.ahora();
       const fin = new Date(inicio.getTime() + f.duracion_min * 60000);
       this.lab.db.prepare("UPDATE proyectos SET estado = 'en_curso', inicio = ?, fin = ? WHERE id = ?").run(inicio.toISOString(), fin.toISOString(), id);
     } else if (accion === 'finalizar') {
-      if (f.estado === 'finalizado') throw new ErrorApp('El proyecto ya terminó.');
-      if (f.estado !== 'en_curso') throw new ErrorApp('El proyecto todavía no empieza.');
+      if (f.estado === 'finalizado') throw new ErrorApp('La actividad ya terminó.');
+      if (f.estado !== 'en_curso') throw new ErrorApp('La actividad todavía no empieza.');
       this.lab.db.prepare('UPDATE proyectos SET fin = ? WHERE id = ?').run(this.lab.iso(), id);
       this.cerrar(id);
     } else if (accion === 'reiniciar') {
-      if (f.estado === 'en_curso') throw new ErrorApp('Finaliza el proyecto antes de reiniciarlo.');
+      if (f.estado === 'en_curso') throw new ErrorApp('Finaliza la actividad antes de reiniciarla.');
       this.lab.db.prepare('DELETE FROM entregas WHERE proyecto_id = ?').run(id);
+      // En individual los puestos se arman de nuevo con los alumnos que haya en el aula al abrir la sala.
+      if (f.modo === 'individual') this.lab.db.prepare('DELETE FROM equipos WHERE proyecto_id = ?').run(id);
       this.lab.db.prepare("UPDATE proyectos SET estado = 'preparacion', inicio = NULL, fin = NULL WHERE id = ?").run(id);
     } else throw new ErrorApp('Acción no válida.');
     return this.tablero(u, id);
@@ -301,8 +369,15 @@ export class Proyectos {
 
   private exigirVer(u: Usuario, f: FilaProyecto) {
     if (u.rol === 'admin' || f.docente_id === u.id) return;
-    if (u.rol === 'estudiante' && this.equipoDe(f.id, u.id)) return;
-    throw new ErrorApp('No participas en este proyecto.', 403);
+    if (u.rol === 'estudiante') {
+      if (this.equipoDe(f.id, u.id)) return;
+      // ¿Se unió al aula después de que se creó la actividad? Entra ahora (si la actividad sigue abierta).
+      if (this.lab.aulas.esMiembro(f.aula_id, u.id)) {
+        this.incluirAlumnos(f, u.id);
+        if (this.equipoDe(f.id, u.id)) return;
+      }
+    }
+    throw new ErrorApp('No participas en esta actividad.', 403);
   }
 
   /** Tablero en vivo (docente en el proyector y alumnos). */
@@ -347,10 +422,10 @@ export class Proyectos {
   entregar(u: Usuario, id: string, respuestas: RespuestaEnviada[]) {
     const f = this.fila(id);
     const equipo = this.equipoDe(id, u.id);
-    if (!equipo) throw new ErrorApp('No participas en este proyecto.', 403);
-    if (f.estado !== 'en_curso') throw new ErrorApp(f.estado === 'finalizado' ? 'El tiempo terminó.' : 'El proyecto todavía no empieza.');
+    if (!equipo) throw new ErrorApp('No participas en esta actividad.', 403);
+    if (f.estado !== 'en_curso') throw new ErrorApp(f.estado === 'finalizado' ? 'El tiempo terminó: la actividad ya está cerrada.' : 'La actividad todavía no empieza.');
     if (this.lab.db.prepare('SELECT 1 FROM entregas WHERE proyecto_id = ? AND equipo_id = ?').get(id, equipo.id))
-      throw new ErrorApp('Tu equipo ya entregó. Solo cuenta la primera entrega.', 409);
+      throw new ErrorApp(f.modo === 'individual' ? 'Ya entregaste. Solo cuenta la primera entrega.' : 'Tu equipo ya entregó. Solo cuenta la primera entrega.', 409);
     const preguntas = this.preguntasDe(f);
     const porId = new Map((respuestas ?? []).map((r) => [r.preguntaId, r.respuesta]));
     const detalle = preguntas.map((p) => ({ preguntaId: p.id, correcta: calificar(p, porId.get(p.id) ?? null) }));
@@ -359,9 +434,10 @@ export class Proyectos {
     this.lab.db
       .prepare('INSERT INTO entregas (id, proyecto_id, equipo_id, alumno_id, respuestas, detalle, aciertos, total, segundos, enviado) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(randomUUID(), id, equipo.id, u.id, JSON.stringify(respuestas ?? []), JSON.stringify(detalle), aciertos, preguntas.length, segundos, this.lab.iso());
-    // Si ya entregaron todos los equipos, termina.
+    // Por equipos: si ya entregaron todos, termina. En individual sigue abierta hasta que acabe el tiempo
+    // (puede llegar un alumno tarde); el docente puede cerrarla antes.
     const n = (this.lab.db.prepare('SELECT COUNT(*) AS n FROM entregas WHERE proyecto_id = ?').get(id) as { n: number }).n;
-    if (n >= this.equipos(id).length) this.cerrar(id);
+    if (f.modo !== 'individual' && n >= this.equipos(id).length) this.cerrar(id);
     return this.paraAlumno(u, id);
   }
 }

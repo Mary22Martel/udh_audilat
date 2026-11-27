@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
-import { Activity, AlertTriangle, ArrowLeft, BookOpen, ChevronDown, ChevronUp, Crown, GraduationCap, Pencil, Plus, Search, Swords, Target, Trophy, UserMinus, Users } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowLeft, ArrowRight, BookOpen, Check, ChevronDown, ChevronUp, Compass, Crown, FileQuestion, GraduationCap, Maximize2, Pencil, Plus, Search, Swords, Target, Timer, Trophy, UserMinus, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { iniciales } from '../../components/shell/Shell';
 import { Actividad, BotonPrincipal, BotonSecundario, CajaError, Cargando, Cifra, Modal, Pagina, Tarjeta, Vacio, colorNivel, estiloCampo, fechaCorta, haceCuanto } from '../../components/ui';
 import { LECCIONES, MODULOS } from '../../data/academiaCurso';
@@ -10,8 +10,9 @@ import { NOMBRE_TIPO, type TipoPregunta } from '../../lib/preguntas';
 import { useSesion } from '../../lib/sesion';
 import { Clasificacion } from '../Clasificacion';
 import { CodigoProyectado, TarjetaCodigo } from './Aulas';
+import { TablaMisiones } from './Misiones';
 
-type Pestana = 'avance' | 'alumnos' | 'clasificacion' | 'proyectos';
+type Pestana = 'avance' | 'misiones' | 'alumnos' | 'clasificacion' | 'proyectos';
 type Orden = 'nombre' | 'xp' | 'precision' | 'lecciones' | 'ultimaActividad';
 
 function TablaAvance({ alumnos, base }: { alumnos: AlumnoSeguimiento[]; base: string }) {
@@ -121,14 +122,87 @@ function TablaAvance({ alumnos, base }: { alumnos: AlumnoSeguimiento[]; base: st
   );
 }
 
+/** Los 3 pasos para empezar con un aula nueva. Se esconde cuando ya están hechos. */
+function PrimerosPasos({ s, base, onProyectar }: { s: SeguimientoAula; base: string; onProyectar: () => void }) {
+  const navigate = useNavigate();
+  const pasos = [
+    {
+      hecho: s.alumnos.length > 0,
+      icono: Users,
+      t: 'Comparte el código del aula',
+      d: s.alumnos.length ? `${s.alumnos.length} alumnos ya se unieron.` : 'Proyéctalo en clase: tus alumnos lo escriben en «Mis aulas».',
+      boton: (
+        <button onClick={onProyectar} className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--c-teal)] hover:underline">
+          <Maximize2 className="w-4 h-4" /> Proyectar código
+        </button>
+      ),
+    },
+    {
+      hecho: s.preguntasPropias > 0,
+      icono: FileQuestion,
+      t: 'Crea tus preguntas',
+      d: s.preguntasPropias
+        ? `${s.preguntasPropias} preguntas tuyas. Tus alumnos las ven en sus lecciones de la Academia.`
+        : 'Desde cero o usando una del sistema como plantilla. Solo las ven los alumnos de tus aulas.',
+      boton: (
+        <button onClick={() => navigate(`${base}/preguntas?nueva=1&aula=${s.aula.id}`)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--c-teal)] hover:underline">
+          <Plus className="w-4 h-4" /> Crear pregunta
+        </button>
+      ),
+    },
+    {
+      hecho: s.proyectos.length > 0,
+      icono: Timer,
+      t: 'Lanza una actividad con tiempo',
+      d: 'Eliges las preguntas y cuánto dura (por ejemplo, 30 min). Al acabarse el tiempo se cierra y ya no se puede responder.',
+      boton: (
+        <button onClick={() => navigate(`${base}/proyectos/nuevo?aula=${s.aula.id}`)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--c-teal)] hover:underline">
+          <ArrowRight className="w-4 h-4" /> Crear actividad
+        </button>
+      ),
+    },
+  ];
+  const hechos = pasos.filter((p) => p.hecho).length;
+  return (
+    <Tarjeta className="p-5 space-y-4 border-[var(--c-teal)]/40">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="font-display font-bold">Primeros pasos con tu aula</p>
+          <p className="text-xs text-[var(--c-suave)]">
+            {hechos} de {pasos.length} listos
+          </p>
+        </div>
+        <div className="flex gap-1">
+          {pasos.map((p, i) => (
+            <span key={i} className={`w-8 h-1.5 rounded-full ${p.hecho ? 'bg-[var(--c-teal)]' : 'bg-[var(--c-elevado)]'}`} />
+          ))}
+        </div>
+      </div>
+      <div className="grid md:grid-cols-3 gap-3">
+        {pasos.map((p, i) => (
+          <div key={i} className={`rounded-2xl p-4 border ${p.hecho ? 'border-[var(--c-teal)]/40 bg-[var(--c-teal)]/6' : 'border-[var(--c-linea)] bg-[var(--c-fondo)]'} space-y-2`}>
+            <p className="flex items-center gap-2 font-semibold text-sm">
+              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${p.hecho ? 'bg-[var(--c-teal)] text-[var(--c-sobre)]' : 'bg-[var(--c-elevado)]'}`}>{p.hecho ? <Check className="w-3.5 h-3.5" /> : i + 1}</span>
+              {p.t}
+            </p>
+            <p className="text-xs text-[var(--c-suave)]">{p.d}</p>
+            {p.boton}
+          </div>
+        ))}
+      </div>
+    </Tarjeta>
+  );
+}
+
 export function Aula({ base = '/docente' }: { base?: string }) {
   const { id } = useParams();
+  const [params, setParams] = useSearchParams();
   const { usuario } = useSesion();
   const navigate = useNavigate();
   const [s, setS] = useState<SeguimientoAula | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pestana, setPestana] = useState<Pestana>('avance');
-  const [proyectar, setProyectar] = useState(false);
+  const [proyectar, setProyectar] = useState(params.get('nueva') === '1');
   const [editar, setEditar] = useState(false);
   const [nombre, setNombre] = useState('');
   const [quitar, setQuitar] = useState<AlumnoSeguimiento | null>(null);
@@ -147,9 +221,10 @@ export function Aula({ base = '/docente' }: { base?: string }) {
 
   const PESTANAS: { id: Pestana; t: string; i: typeof Users }[] = [
     { id: 'avance', t: 'Avance en la Academia', i: GraduationCap },
+    { id: 'misiones', t: 'Misiones', i: Compass },
     { id: 'alumnos', t: `Alumnos (${s.alumnos.length})`, i: Users },
     { id: 'clasificacion', t: 'Clasificación', i: Trophy },
-    { id: 'proyectos', t: `Proyectos (${s.proyectos.length})`, i: Swords },
+    { id: 'proyectos', t: `Actividades (${s.proyectos.length})`, i: Swords },
   ];
 
   return (
@@ -176,6 +251,10 @@ export function Aula({ base = '/docente' }: { base?: string }) {
         </div>
       </Tarjeta>
 
+      {esDueno && usuario?.rol === 'docente' && !s.aula.archivada && (s.alumnos.length === 0 || s.preguntasPropias === 0 || s.proyectos.length === 0) && (
+        <PrimerosPasos s={s} base={base} onProyectar={() => setProyectar(true)} />
+      )}
+
       <div className="flex gap-1 p-1 bg-[var(--c-panel)] border border-[var(--c-linea)] rounded-xl w-full overflow-x-auto">
         {PESTANAS.map((p) => (
           <button key={p.id} onClick={() => setPestana(p.id)} className={`relative flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap ${pestana === p.id ? 'text-[var(--c-texto)]' : 'text-[var(--c-suave)]'}`}>
@@ -194,6 +273,25 @@ export function Aula({ base = '/docente' }: { base?: string }) {
             <Cifra etiqueta="Aciertos promedio" valor={s.precision === null ? '—' : `${s.precision} %`} icono={Target} tono="oro" retraso={0.1} detalle="En todas las preguntas de la Academia" />
             <Cifra etiqueta="Lecciones por alumno" valor={`${s.leccionesPromedio} / ${s.totalLecciones}`} icono={BookOpen} retraso={0.15} detalle="Promedio de lecciones completadas" />
           </div>
+
+          {usuario?.rol === 'docente' && esDueno && (
+            <Tarjeta className="p-5 flex flex-col sm:flex-row sm:items-center gap-4 justify-between" retraso={0.18}>
+              <div className="flex items-center gap-3">
+                <span className="w-11 h-11 rounded-xl bg-[var(--c-teal)]/12 text-[var(--c-teal)] flex items-center justify-center shrink-0">
+                  <FileQuestion className="w-5 h-5" />
+                </span>
+                <div>
+                  <p className="font-semibold">
+                    {s.preguntasPropias ? `${s.preguntasPropias} ${s.preguntasPropias === 1 ? 'pregunta tuya llega' : 'preguntas tuyas llegan'} a esta aula` : 'Agrega tus propias preguntas a esta aula'}
+                  </p>
+                  <p className="text-xs text-[var(--c-suave)]">Aparecen en las lecciones de la Academia solo para tus alumnos, marcadas como «Pregunta de tu docente».</p>
+                </div>
+              </div>
+              <Link to={`${base}/preguntas`} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--c-teal)] text-[var(--c-sobre)] text-sm font-semibold whitespace-nowrap">
+                <Plus className="w-4 h-4" /> Banco de preguntas
+              </Link>
+            </Tarjeta>
+          )}
 
           <div className="grid lg:grid-cols-12 gap-6">
             <Tarjeta className="lg:col-span-6 p-6 space-y-4">
@@ -308,16 +406,26 @@ export function Aula({ base = '/docente' }: { base?: string }) {
 
       {pestana === 'clasificacion' && <Clasificacion tipo="academia" aulaId={s.aula.id} incrustada />}
 
+      {pestana === 'misiones' && (
+        <div className="space-y-6">
+          <p className="text-sm text-[var(--c-suave)]">Las misiones son práctica libre. Aquí ves cómo les va solo a los alumnos de esta aula.</p>
+          <Tarjeta className="overflow-hidden">
+            <TablaMisiones misiones={s.misiones} />
+          </Tarjeta>
+          <Clasificacion tipo="misiones" aulaId={s.aula.id} incrustada />
+        </div>
+      )}
+
       {pestana === 'proyectos' && (
         <div className="space-y-4">
           {esDueno && usuario?.rol === 'docente' && (
             <BotonPrincipal onClick={() => navigate(`${base}/proyectos/nuevo?aula=${s.aula.id}`)}>
-              <Plus className="w-4 h-4" /> Nuevo proyecto por equipos
+              <Plus className="w-4 h-4" /> Nueva actividad
             </BotonPrincipal>
           )}
           {s.proyectos.length === 0 ? (
             <Tarjeta>
-              <Vacio icono={Swords} titulo="Sin proyectos todavía" texto="Arma un reto con preguntas y casos de comprobantes, forma equipos y juéguenlo en vivo." />
+              <Vacio icono={Swords} titulo="Sin actividades todavía" texto="Arma una actividad con tus preguntas y casos de comprobantes, elige cuánto dura y juéguenla en vivo: cada alumno solo o por equipos." />
             </Tarjeta>
           ) : (
             <div className="grid sm:grid-cols-2 gap-4">
@@ -326,7 +434,7 @@ export function Aula({ base = '/docente' }: { base?: string }) {
                   <p className="text-[11px] uppercase tracking-wider text-[var(--c-suave)]">{{ preparacion: 'En preparación', sala: 'Sala abierta', en_curso: 'En vivo', finalizado: 'Terminado' }[p.estado]} · {fechaCorta(p.inicio ?? p.creado)}</p>
                   <p className="font-display font-bold">{p.nombre}</p>
                   <p className="text-xs text-[var(--c-suave)]">
-                    {p.preguntas} preguntas · {p.equipos} equipos · {p.duracionMin} min
+                    {p.modo === 'individual' ? 'Individual' : `${p.equipos} equipos`} · {p.preguntas} preguntas · {p.duracionMin} min
                   </p>
                   {p.ganador && (
                     <p className="text-sm inline-flex items-center gap-1.5 pt-1">
@@ -340,7 +448,15 @@ export function Aula({ base = '/docente' }: { base?: string }) {
         </div>
       )}
 
-      {proyectar && <CodigoProyectado aula={s.aula} onCerrar={() => setProyectar(false)} />}
+      {proyectar && (
+        <CodigoProyectado
+          aula={s.aula}
+          onCerrar={() => {
+            setProyectar(false);
+            if (params.get('nueva')) setParams({}, { replace: true });
+          }}
+        />
+      )}
       {editar && (
         <Modal titulo="Editar aula" onCerrar={() => setEditar(false)}>
           <div className="space-y-4">

@@ -1,11 +1,11 @@
 import { motion } from 'motion/react';
-import { ArrowLeft, Copy, EyeOff, FileWarning, Filter, Pencil, Plus, RotateCcw, Search, Trash2, Eye } from 'lucide-react';
+import { ArrowLeft, Copy, EyeOff, FileWarning, Filter, Lock, Pencil, Plus, RotateCcw, School, Search, Trash2, Eye } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { EditorPregunta, plantillaPregunta } from '../../components/preguntas/Editor';
 import { BotonPrincipal, BotonSecundario, CajaError, Cargando, Encabezado, Modal, Pagina, Tarjeta, Vacio, colorNivel, estiloCampo } from '../../components/ui';
 import { LECCIONES, MODULOS } from '../../data/academiaCurso';
-import { api, type PreguntaBanco } from '../../lib/api';
+import { api, type AulaDocente, type PreguntaBanco } from '../../lib/api';
 import { NOMBRE_TIPO, type Pregunta, type TipoPregunta } from '../../lib/preguntas';
 import { useSesion } from '../../lib/sesion';
 
@@ -42,8 +42,40 @@ function ElegirTipo({ onElegir }: { onElegir: (t: TipoPregunta) => void }) {
   );
 }
 
+/** Etiqueta de a quién le llega la pregunta. */
+function chipAlcance(p: PreguntaBanco, esDocente: boolean, miId?: string) {
+  if (p.alcance === 'base') return p.editada ? 'Del sistema · editada' : 'Del sistema';
+  if (p.alcance === 'general') return `Para todos · por ${p.autor}`;
+  const destino = p.aulaNombre ?? (esDocente ? 'todas tus aulas' : 'todas sus aulas');
+  return esDocente && p.autorId === miId ? `Tuya · ${destino}` : `Por ${p.autor} · ${destino}`;
+}
+
+/** «¿Quién la va a ver?»: el docente elige una de sus aulas o todas. */
+function SelectorDestino({ aulas, valor, onCambio }: { aulas: AulaDocente[]; valor: string | null; onCambio: (v: string | null) => void }) {
+  const activas = aulas.filter((a) => !a.archivada);
+  return (
+    <Tarjeta className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+      <span className="flex items-center gap-2 text-sm font-semibold">
+        <School className="w-4 h-4 text-[var(--c-teal)]" /> ¿Quiénes la verán?
+      </span>
+      <select value={valor ?? ''} onChange={(e) => onCambio(e.target.value || null)} className={`${estiloCampo} py-2 sm:w-80`}>
+        <option value="">Los alumnos de todas mis aulas</option>
+        {activas.map((a) => (
+          <option key={a.id} value={a.id}>
+            Solo «{a.nombre}» ({a.alumnos} alumnos)
+          </option>
+        ))}
+      </select>
+      <span className="text-xs text-[var(--c-suave)]">Aparece en la lección elegida de la Academia, marcada como «Pregunta de tu docente».</span>
+    </Tarjeta>
+  );
+}
+
 export function Banco() {
   const { usuario } = useSesion();
+  const esDocente = usuario?.rol === 'docente';
+  const [aulas, setAulas] = useState<AulaDocente[]>([]);
+  const [destino, setDestino] = useState<string | null>(null);
   const [params, setParams] = useSearchParams();
   const [preguntas, setPreguntas] = useState<PreguntaBanco[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,18 +88,46 @@ export function Banco() {
   const [guardando, setGuardando] = useState(false);
   const [eliminar, setEliminar] = useState<PreguntaBanco | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  /** Después de crear una pregunta, ofrece usarla en una actividad. */
+  const [recien, setRecien] = useState<{ aulaId: string | null } | null>(null);
+  const navigate = useNavigate();
+  // Aula sugerida (cuando viene de «Primeros pasos» del aula).
+  const aulaSugerida = params.get('aula');
 
   const cargar = () => api.get<{ preguntas: PreguntaBanco[] }>('/api/preguntas').then((r) => setPreguntas(r.preguntas)).catch((e) => setError(e.message));
   useEffect(() => {
     cargar();
-  }, []);
+    if (esDocente) api.get<{ aulas: AulaDocente[] }>('/api/docente/aulas').then((r) => setAulas(r.aulas)).catch(() => undefined);
+  }, [esDocente]);
+
+  /** Abre una pregunta: si no puede editarla (es del sistema u otro autor), la abre como copia para sus aulas. */
+  const abrir = (p: PreguntaBanco | Pregunta, copia = false) => {
+    const editable = 'editable' in p ? p.editable : true;
+    if (copia || !editable) {
+      setDestino(null);
+      setEditando({ ...p, id: 'nueva', autor: null, alcance: undefined, aulaId: null, enunciado: copia && editable ? `${p.enunciado} (copia)` : p.enunciado } as Pregunta);
+      if (!editable) setAviso(esDocente ? 'Las preguntas del sistema solo las edita el administrador. La abrimos como plantilla: lo que guardes será una pregunta tuya para tus aulas.' : null);
+    } else {
+      setDestino(p.aulaId ?? null);
+      setEditando(p);
+    }
+  };
 
   // Abrir directamente una pregunta (?editar=id), por ejemplo desde «Preguntas que más fallan».
+  // ?nueva=1&aula=…: abre directo «Nueva pregunta» para esa aula.
+  useEffect(() => {
+    if (params.get('nueva') === '1') {
+      setEligiendo(true);
+      params.delete('nueva');
+      setParams(params, { replace: true });
+    }
+  }, [params, setParams]);
+
   useEffect(() => {
     const id = params.get('editar');
     if (id && preguntas) {
       const p = preguntas.find((x) => x.id === id);
-      if (p) setEditando(p);
+      if (p) abrir(p);
       params.delete('editar');
       setParams(params, { replace: true });
     }
@@ -79,21 +139,26 @@ export function Banco() {
       const lec = LECCIONES.find((l) => l.id === p.leccionId);
       if (modulo && lec?.moduloId !== modulo) return false;
       if (tipo && p.tipo !== tipo) return false;
-      if (origen === 'base' && p.autor) return false;
-      if (origen === 'docentes' && !p.autor) return false;
-      if (origen === 'mias' && p.autor !== usuario?.nombre) return false;
+      if (origen === 'base' && p.alcance === 'aula') return false;
+      if (origen === 'docentes' && p.alcance !== 'aula') return false;
+      if (origen === 'mias' && p.autorId !== usuario?.id) return false;
       if (origen === 'inactivas' ? p.activo !== false : p.activo === false) return false;
       return !t || p.enunciado.toLowerCase().includes(t);
-    });
+    })
+      // Las propias primero dentro de cada módulo, para encontrarlas rápido.
+      .sort((a, b) => Number(b.autorId === usuario?.id) - Number(a.autorId === usuario?.id));
   }, [preguntas, q, modulo, tipo, origen, usuario]);
 
   const guardar = async (p: Pregunta) => {
     setGuardando(true);
     try {
-      if (p.id === 'nueva') await api.post('/api/preguntas', p);
-      else await api.put(`/api/preguntas/${p.id}`, p);
+      const datos = { ...p, aulaId: esDocente ? destino : null };
+      if (p.id === 'nueva') await api.post('/api/preguntas', datos);
+      else await api.put(`/api/preguntas/${p.id}`, datos);
       setEditando(null);
-      setAviso(p.id === 'nueva' ? 'Pregunta creada. Ya aparece en la Academia.' : 'Cambios guardados.');
+      const quien = esDocente ? (destino ? `los alumnos de «${aulas.find((a) => a.id === destino)?.nombre}»` : 'los alumnos de tus aulas') : 'todos los alumnos';
+      setAviso(p.id === 'nueva' ? `Pregunta creada. Ya la ven ${quien} en su lección de la Academia.` : 'Cambios guardados.');
+      if (p.id === 'nueva' && esDocente) setRecien({ aulaId: destino });
       cargar();
     } catch (e) {
       setAviso((e as Error).message);
@@ -111,23 +176,32 @@ export function Banco() {
         <button onClick={() => setEditando(null)} className="inline-flex items-center gap-2 text-sm text-[var(--c-suave)] hover:text-[var(--c-texto)]">
           <ArrowLeft className="w-4 h-4" /> Volver al banco
         </button>
-        <Encabezado antetitulo={editando.id === 'nueva' ? 'Nueva pregunta' : editando.autor ? `Creada por ${editando.autor}` : 'Pregunta base del sistema'} titulo={NOMBRE_TIPO[editando.tipo].nombre} />
-        {editando.id !== 'nueva' && !editando.autor && (
-          <p className="text-xs text-[var(--c-suave)] -mt-4">Los cambios se aplican para todos los alumnos. Siempre puedes volver a la versión original con «Restaurar».</p>
+        <Encabezado
+          antetitulo={editando.id === 'nueva' ? (esDocente ? 'Nueva pregunta para tus aulas' : 'Nueva pregunta para todos') : editando.alcance === 'base' ? 'Pregunta base del sistema' : `Creada por ${editando.autor}`}
+          titulo={NOMBRE_TIPO[editando.tipo].nombre}
+        />
+        {editando.alcance === 'base' && (
+          <p className="text-xs text-[var(--c-suave)] -mt-4">Los cambios se aplican para todos los alumnos de AUDIT LAB. Siempre puedes volver a la versión original con «Restaurar».</p>
         )}
+        {!esDocente && editando.id === 'nueva' && <p className="text-xs text-[var(--c-suave)] -mt-4">Las preguntas que crea el administrador las ven todos los alumnos.</p>}
+        {esDocente && <SelectorDestino aulas={aulas} valor={destino} onCambio={setDestino} />}
         <EditorPregunta key={editando.id} inicial={editando} onGuardar={guardar} onCancelar={() => setEditando(null)} guardando={guardando} />
       </Pagina>
     );
 
   const total = preguntas.filter((p) => p.activo !== false).length;
-  const mias = preguntas.filter((p) => p.autor === usuario?.nombre).length;
+  const mias = preguntas.filter((p) => p.autorId === usuario?.id).length;
 
   return (
     <Pagina>
       <Encabezado
         antetitulo="Academia"
         titulo="Banco de preguntas"
-        descripcion={`${total} preguntas activas en ${LECCIONES.length} lecciones${mias ? ` · ${mias} creadas por ti` : ''}. Lo que edites aquí cambia lo que ven los alumnos en la Academia, y puedes usarlas en tus proyectos por equipos.`}
+        descripcion={
+          esDocente
+            ? `${total} preguntas: las del sistema (para todos) y ${mias ? `las ${mias} tuyas` : 'las que crees tú'}, que solo ven los alumnos de tus aulas. Todas sirven para tus proyectos por equipos.`
+            : `${total} preguntas activas en ${LECCIONES.length} lecciones. Las del sistema y las que crees aquí las ven todos los alumnos; las de cada docente, solo sus aulas.`
+        }
         acciones={
           <BotonPrincipal onClick={() => setEligiendo(true)}>
             <Plus className="w-4 h-4" /> Nueva pregunta
@@ -139,6 +213,18 @@ export function Banco() {
         <motion.p initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="text-sm px-4 py-3 rounded-xl bg-[var(--c-teal)]/12 text-[var(--c-teal)]" onAnimationComplete={() => setTimeout(() => setAviso(null), 3500)}>
           {aviso}
         </motion.p>
+      )}
+
+      {recien && (
+        <Tarjeta className="p-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between border-[var(--c-teal)]/40">
+          <p className="text-sm">
+            <strong>¿Quieres que la respondan en clase con tiempo?</strong> Crea una actividad en vivo y agrégala junto con otras preguntas.
+          </p>
+          <div className="flex gap-2 shrink-0">
+            <BotonSecundario onClick={() => setRecien(null)}>Ahora no</BotonSecundario>
+            <BotonPrincipal onClick={() => navigate(`/docente/proyectos/nuevo${recien.aulaId ? `?aula=${recien.aulaId}` : ''}`)}>Crear actividad</BotonPrincipal>
+          </div>
+        </Tarjeta>
       )}
 
       <Tarjeta className="p-4 flex flex-col lg:flex-row gap-3 lg:items-center">
@@ -164,9 +250,8 @@ export function Banco() {
         </select>
         <select value={origen} onChange={(e) => setOrigen(e.target.value as typeof origen)} className={`${estiloCampo} py-2 lg:w-44`}>
           <option value="todas">Todas</option>
-          <option value="base">Base del sistema</option>
-          <option value="docentes">Creadas por docentes</option>
-          <option value="mias">Creadas por mí</option>
+          <option value="base">Del sistema</option>
+          {esDocente ? <option value="mias">Mías</option> : <option value="docentes">De los docentes</option>}
           <option value="inactivas">Desactivadas</option>
         </select>
       </Tarjeta>
@@ -195,7 +280,10 @@ export function Banco() {
                             {NOMBRE_TIPO[p.tipo].nombre}
                           </span>
                           <span className="text-[var(--c-suave)]">{LECCIONES.find((l) => l.id === p.leccionId)?.titulo}</span>
-                          <span className="text-[var(--c-suave)]">· {p.autor ? `por ${p.autor}` : p.editada ? 'base, editada' : 'base'}</span>
+                          <span className={p.alcance === 'aula' ? 'px-2 py-0.5 rounded-md bg-[var(--c-oro)]/12 text-[var(--c-oro)] font-semibold' : 'text-[var(--c-suave)]'}>
+                            {p.alcance === 'aula' ? '' : '· '}
+                            {chipAlcance(p, esDocente, usuario?.id)}
+                          </span>
                           {p.activo === false && <span className="text-rose-400 font-semibold">· desactivada</span>}
                         </div>
                         <p className="text-sm mt-1.5 line-clamp-2">{p.enunciado}</p>
@@ -208,23 +296,31 @@ export function Banco() {
                           <span className="text-[var(--c-suave)]">{p.respondida} resp.</span>
                         </span>
                         <span className="flex">
-                          <button onClick={() => setEditando(p)} className="p-2 rounded-lg hover:bg-[var(--c-elevado)]" title="Editar">
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => setEditando({ ...p, id: 'nueva', enunciado: `${p.enunciado} (copia)` })} className="p-2 rounded-lg hover:bg-[var(--c-elevado)]" title="Duplicar para hacer una variante">
+                          {p.editable ? (
+                            <button onClick={() => abrir(p)} className="p-2 rounded-lg hover:bg-[var(--c-elevado)]" title="Editar">
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <span className="p-2 text-[var(--c-tenue)]" title="Es del sistema: solo la edita el administrador">
+                              <Lock className="w-4 h-4" />
+                            </span>
+                          )}
+                          <button onClick={() => abrir(p, true)} className="p-2 rounded-lg hover:bg-[var(--c-elevado)]" title={esDocente ? 'Usar como plantilla para una pregunta mía' : 'Duplicar para hacer una variante'}>
                             <Copy className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={async () => {
-                              await api.post(`/api/preguntas/${p.id}/estado`, { activo: p.activo === false });
-                              cargar();
-                            }}
-                            className="p-2 rounded-lg hover:bg-[var(--c-elevado)]"
-                            title={p.activo === false ? 'Activar' : 'Desactivar (deja de salir en la Academia)'}
-                          >
-                            {p.activo === false ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                          </button>
-                          {!p.autor && p.editada && (
+                          {p.editable && (
+                            <button
+                              onClick={async () => {
+                                await api.post(`/api/preguntas/${p.id}/estado`, { activo: p.activo === false });
+                                cargar();
+                              }}
+                              className="p-2 rounded-lg hover:bg-[var(--c-elevado)]"
+                              title={p.activo === false ? 'Activar' : 'Desactivar (deja de salir en la Academia)'}
+                            >
+                              {p.activo === false ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                            </button>
+                          )}
+                          {p.editable && p.alcance === 'base' && p.editada && (
                             <button
                               onClick={async () => {
                                 await api.post(`/api/preguntas/${p.id}/restaurar`);
@@ -237,7 +333,7 @@ export function Banco() {
                               <RotateCcw className="w-4 h-4" />
                             </button>
                           )}
-                          {p.autor && (
+                          {p.editable && p.alcance !== 'base' && (
                             <button onClick={() => setEliminar(p)} className="p-2 rounded-lg hover:bg-[var(--c-elevado)] text-rose-400" title="Eliminar">
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -258,6 +354,7 @@ export function Banco() {
           <ElegirTipo
             onElegir={(t) => {
               setEligiendo(false);
+              setDestino(aulaSugerida && aulas.some((a) => a.id === aulaSugerida) ? aulaSugerida : null);
               setEditando(plantillaPregunta(t, LECCIONES.find((l) => l.moduloId === (modulo || 'm1'))?.id));
             }}
           />

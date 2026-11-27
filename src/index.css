@@ -21,9 +21,25 @@
   --c-teal-hover: #0d6a69;
   --c-oro: #a86a0a;
   --c-sobre: #ffffff;
+  /* Actividad en vivo: coral sobrio que acompaña al turquesa. */
+  --c-vivo: #d4475e;
+  --c-sobre-vivo: #ffffff;
   --c-linea: rgb(15 42 61 / 0.11);
   --c-linea-fuerte: rgb(15 42 61 / 0.22);
   --c-sombra: 0 1px 2px rgb(15 42 61 / 0.06), 0 8px 24px -12px rgb(15 42 61 / 0.18);
+  /* Tarjetas destacadas («héroe»): claras en modo día. */
+  --h-fondo: #dcefee;
+  --h-texto: #0f2a3d;
+  --h-suave: #3f5d6b;
+  --h-tenue: #5f7c89;
+  --h-acento: #0d6a69;
+  --h-oro: #9a5f05;
+  --h-vidrio: rgb(255 255 255 / 0.7);
+  --h-borde: rgb(15 42 61 / 0.12);
+  --h-linea: rgb(15 42 61 / 0.5);
+  --h-velo: rgb(242 246 248 / 0.97);
+  --h-velo-85: rgb(242 246 248 / 0.88);
+  --h-velo-30: rgb(242 246 248 / 0.35);
   color-scheme: light;
 }
 
@@ -40,9 +56,23 @@
   --c-teal-hover: #14a393;
   --c-oro: #e7a83e;
   --c-sobre: #0b131f;
+  --c-vivo: #f0697d;
+  --c-sobre-vivo: #1a0a0e;
   --c-linea: rgb(255 255 255 / 0.1);
   --c-linea-fuerte: rgb(255 255 255 / 0.22);
   --c-sombra: none;
+  --h-fondo: #0b1a26;
+  --h-texto: #ffffff;
+  --h-suave: rgb(255 255 255 / 0.7);
+  --h-tenue: rgb(255 255 255 / 0.5);
+  --h-acento: #7fd0d1;
+  --h-oro: #f2b632;
+  --h-vidrio: rgb(255 255 255 / 0.08);
+  --h-borde: rgb(255 255 255 / 0.12);
+  --h-linea: #ffffff;
+  --h-velo: #08121c;
+  --h-velo-85: rgb(8 18 28 / 0.85);
+  --h-velo-30: rgb(8 18 28 / 0.3);
   color-scheme: dark;
 }
 

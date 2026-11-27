@@ -168,9 +168,9 @@ export function Portada() {
               <Link to="/ingresar" className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-[#48a6a7] hover:bg-[#3d9495] text-white font-semibold transition-all hover:gap-3 shadow-xl shadow-[#48a6a7]/30">
                 Comenzar mi práctica <ArrowUpRight className="w-4 h-4" />
               </Link>
-              <a href="#experiencia" className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl border border-white/30 bg-white/5 backdrop-blur text-white font-semibold hover:bg-white/15 transition-colors">
-                Conocer la experiencia <ArrowRight className="w-4 h-4" />
-              </a>
+              <Link to="/ingresar?registro=1" className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl border border-white/30 bg-white/5 backdrop-blur text-white font-semibold hover:bg-white/15 transition-colors">
+                Soy alumno: crear mi cuenta <ArrowRight className="w-4 h-4" />
+              </Link>
             </motion.div>
             <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.5 }} className="text-xs text-white/50 flex items-center gap-2">
               <GraduationCap className="w-4 h-4" /> Escuela Profesional de Contabilidad · Universidad de Huánuco

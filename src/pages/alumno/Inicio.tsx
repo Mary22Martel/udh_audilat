@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { ArrowRight, BookOpen, Check, Flame, GraduationCap, Lock, Mail, Play, Radio, ShieldCheck, Star, TrendingUp, Trophy } from 'lucide-react';
+import { ArrowRight, BookOpen, Check, Flame, GraduationCap, Lock, Mail, Play, ShieldCheck, Star, TrendingUp, Trophy } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ResilientImage } from '../../components/ResilientImage';
@@ -11,6 +11,7 @@ import { comunicacionesDe, siguienteMision } from '../../lib/misiones';
 import { COMPETENCIAS, REPASO_POR_COMPETENCIA, type CompetenciaId } from '../../lib/reglas';
 import { useSesion } from '../../lib/sesion';
 import { useAlumno } from './datos';
+import { TarjetaActividad } from '../../components/TarjetaActividad';
 
 function saludo() {
   const h = Number(new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/Lima' }));
@@ -93,36 +94,23 @@ export function Inicio() {
       </motion.div>
 
       {vivos.map((p) => (
-        <motion.button
-          key={p.id}
-          initial={{ opacity: 0, scale: 0.97 }}
-          animate={{ opacity: 1, scale: 1 }}
-          onClick={() => navigate(`/app/proyectos/${p.id}`)}
-          className="w-full text-left flex items-center gap-4 rounded-2xl p-4 bg-rose-600 text-white shadow-lg shadow-rose-600/30"
-        >
-          <Radio className="w-6 h-6 animate-pulse shrink-0" />
-          <span className="flex-1 min-w-0">
-            <span className="block text-xs font-black tracking-wider">{p.estado === 'en_curso' ? 'COMPETENCIA EN VIVO' : 'SALA ABIERTA'}</span>
-            <span className="block font-display font-bold truncate">{p.nombre} · {p.miEquipo?.nombre}</span>
-          </span>
-          <span className="font-bold inline-flex items-center gap-1">Entrar <ArrowRight className="w-4 h-4" /></span>
-        </motion.button>
+        <TarjetaActividad key={p.id} p={p} compacta />
       ))}
 
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative overflow-hidden rounded-3xl bg-[#0b1a26] text-white p-6 sm:p-7 flex flex-col md:flex-row md:items-center gap-5">
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative overflow-hidden rounded-3xl bg-[var(--h-fondo)] text-[var(--h-texto)] p-6 sm:p-7 flex flex-col md:flex-row md:items-center gap-5">
         <div className="absolute -right-16 -top-20 w-72 h-72 rounded-full bg-[#48a6a7]/20 blur-3xl" />
-        <span className="relative w-14 h-14 rounded-2xl bg-[#48a6a7] flex items-center justify-center shrink-0">
+        <span className="relative w-14 h-14 rounded-2xl bg-[#48a6a7] text-white flex items-center justify-center shrink-0">
           <GraduationCap className="w-7 h-7" />
         </span>
         <div className="relative flex-1 min-w-0">
-          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#7fd0d1]">Academia · ruta de certificación</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--h-acento)]">Academia · ruta de certificación</p>
           <p className="font-display text-xl sm:text-2xl font-extrabold mt-1">
             {sigLeccion ? `Sigue con «${sigLeccion.titulo}»` : leccionesHechas ? '¡Completaste todas las lecciones!' : 'Empieza tu certificación'}
           </p>
-          <p className="text-sm text-white/65">
+          <p className="text-sm text-[var(--h-suave)]">
             {moduloSig ? `Módulo ${moduloSig.numero}: ${moduloSig.titulo}` : 'Repite lecciones para conseguir 3 estrellas.'} · {leccionesHechas}/{LECCIONES.length} lecciones
           </p>
-          <div className="mt-3 h-2 rounded-full bg-white/10 overflow-hidden max-w-md">
+          <div className="mt-3 h-2 rounded-full bg-[var(--h-borde)] overflow-hidden max-w-md">
             <motion.div className="h-full bg-gradient-to-r from-[#48a6a7] to-[#f2b632]" initial={{ width: 0 }} animate={{ width: `${(leccionesHechas / LECCIONES.length) * 100}%` }} transition={{ duration: 0.9 }} />
           </div>
         </div>
@@ -139,26 +127,26 @@ export function Inicio() {
         {proxima && (
           <Tarjeta className="lg:col-span-8 overflow-hidden relative min-h-[300px] flex">
             <ResilientImage src={proxima.heroImage} alt="" className="absolute inset-0 w-full h-full object-cover" />
-            <div className="absolute inset-0 bg-gradient-to-r from-[#08121c] via-[#08121c]/85 to-[#08121c]/30" />
-            <div className="relative p-6 sm:p-8 flex flex-col justify-between gap-6 text-white w-full">
+            <div className="absolute inset-0 bg-gradient-to-r from-[var(--h-velo)] via-[var(--h-velo-85)] to-[var(--h-velo-30)]" />
+            <div className="relative p-6 sm:p-8 flex flex-col justify-between gap-6 text-[var(--h-texto)] w-full">
               <div className="space-y-3 max-w-xl">
-                <p className="text-xs font-mono-tabular text-[#f2b632]">
+                <p className="text-xs font-mono-tabular text-[var(--h-oro)]">
                   Misión libre · {proxima.status === 'completado' ? 'mejora tu marca' : 'tu siguiente caso'} · {proxima.number} · {proxima.dossierCode}
                 </p>
                 <h2 className="font-display text-2xl sm:text-3xl font-extrabold leading-tight">{proxima.title}</h2>
-                <p className="text-sm text-white/75">
+                <p className="text-sm text-[var(--h-suave)]">
                   {proxima.companyName} · {proxima.taxInvestigated}
                 </p>
               </div>
               {esquela && (
-                <div className="max-w-xl rounded-xl bg-white/10 backdrop-blur border border-white/15 p-4 flex gap-3">
-                  <Mail className="w-5 h-5 text-[#f2b632] shrink-0 mt-0.5" />
+                <div className="max-w-xl rounded-xl bg-[var(--h-vidrio)] backdrop-blur border border-[var(--h-borde)] p-4 flex gap-3">
+                  <Mail className="w-5 h-5 text-[var(--h-oro)] shrink-0 mt-0.5" />
                   <div className="min-w-0">
-                    <p className="text-[11px] text-white/70">
-                      {esquela.sender} {esquela.dueDateLabel && <span className="text-[#f2b632]">· {esquela.dueDateLabel}</span>}
+                    <p className="text-[11px] text-[var(--h-suave)]">
+                      {esquela.sender} {esquela.dueDateLabel && <span className="text-[var(--h-oro)]">· {esquela.dueDateLabel}</span>}
                     </p>
                     <p className="text-sm font-semibold mt-0.5">{esquela.subject}</p>
-                    <p className="text-xs text-white/70 mt-1 line-clamp-2">{esquela.preview}</p>
+                    <p className="text-xs text-[var(--h-suave)] mt-1 line-clamp-2">{esquela.preview}</p>
                   </div>
                 </div>
               )}
@@ -169,8 +157,8 @@ export function Inicio() {
                 >
                   Abrir expediente <ArrowRight className="w-4 h-4" />
                 </button>
-                <span className="text-xs text-white/70">
-                  {proxima.difficulty} · {proxima.estimatedMinutes} min · <span className="text-[#f2b632] font-semibold">hasta +{proxima.xpReward} XP</span>
+                <span className="text-xs text-[var(--h-suave)]">
+                  {proxima.difficulty} · {proxima.estimatedMinutes} min · <span className="text-[var(--h-oro)] font-semibold">hasta +{proxima.xpReward} XP</span>
                 </span>
               </div>
             </div>

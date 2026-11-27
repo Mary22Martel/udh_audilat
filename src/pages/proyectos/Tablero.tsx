@@ -33,7 +33,7 @@ export function Reloj({ quedan, grande = false }: { quedan: number | null; grand
   );
 }
 
-function FilaEquipo({ e, total, grande, mio, final }: { e: EquipoTablero; total: number; grande: boolean; mio: boolean; final: boolean }) {
+function FilaEquipo({ e, total, grande, mio, final, individual, enCurso }: { e: EquipoTablero; total: number; grande: boolean; mio: boolean; final: boolean; individual?: boolean; enCurso?: boolean }) {
   return (
     <motion.div
       layout
@@ -53,12 +53,14 @@ function FilaEquipo({ e, total, grande, mio, final }: { e: EquipoTablero; total:
         </span>
         <span className="flex-1 min-w-0">
           <span className={`block font-display font-bold truncate ${grande ? 'text-2xl' : ''}`}>
-            {e.nombre} {mio && <span className="text-xs font-sans font-semibold text-[var(--c-suave)]">(tu equipo)</span>}
+            {e.nombre} {mio && <span className="text-xs font-sans font-semibold text-[var(--c-suave)]">{individual ? '(tú)' : '(tu equipo)'}</span>}
           </span>
-          <span className={`block text-[var(--c-suave)] truncate ${grande ? 'text-sm' : 'text-xs'}`}>
-            <Users className="inline w-3 h-3 mr-1" />
-            {e.miembros.map((m) => m.nombre.split(' ')[0]).join(', ')}
-          </span>
+          {!individual && (
+            <span className={`block text-[var(--c-suave)] truncate ${grande ? 'text-sm' : 'text-xs'}`}>
+              <Users className="inline w-3 h-3 mr-1" />
+              {e.miembros.map((m) => m.nombre.split(' ')[0]).join(', ')}
+            </span>
+          )}
         </span>
         <span className="text-right shrink-0">
           {e.entregado ? (
@@ -73,6 +75,8 @@ function FilaEquipo({ e, total, grande, mio, final }: { e: EquipoTablero; total:
             </>
           ) : final ? (
             <span className="text-xs text-[var(--c-suave)]">No entregó</span>
+          ) : !enCurso ? (
+            <span className={`text-[var(--c-suave)] ${grande ? 'text-base' : 'text-xs'}`}>En la sala</span>
           ) : (
             <span className={`inline-flex items-center gap-1.5 text-[var(--c-suave)] ${grande ? 'text-base' : 'text-xs'}`}>
               <Loader2 className="w-4 h-4 animate-spin" /> Resolviendo…
@@ -92,10 +96,13 @@ export function TableroEquipos({ t, grande = false }: { t: TTablero; grande?: bo
     <div className="space-y-3">
       <AnimatePresence>
         {t.equipos.map((e) => (
-          <FilaEquipo key={e.id} e={e} total={total} grande={grande} mio={e.id === t.miEquipoId} final={final} />
+          <FilaEquipo key={e.id} e={e} total={total} grande={grande} mio={e.id === t.miEquipoId} final={final} individual={t.modo === 'individual'} enCurso={t.estado === 'en_curso'} />
         ))}
       </AnimatePresence>
-      <p className={`text-[var(--c-suave)] ${grande ? 'text-sm' : 'text-xs'}`}>Gana el equipo con más aciertos. Si empatan, gana el que entregó primero.</p>
+      {t.equipos.length === 0 && <p className="text-sm text-[var(--c-suave)]">Todavía no hay participantes. Los alumnos del aula entran al abrir la sala.</p>}
+      <p className={`text-[var(--c-suave)] ${grande ? 'text-sm' : 'text-xs'}`}>
+        {t.modo === 'individual' ? 'Gana quien tiene más aciertos. Si empatan, gana quien entregó primero.' : 'Gana el equipo con más aciertos. Si empatan, gana el que entregó primero.'}
+      </p>
     </div>
   );
 }

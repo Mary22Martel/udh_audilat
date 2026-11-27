@@ -151,7 +151,8 @@ export function Clasificacion({
   const cargar = () => {
     setDatos(null);
     api
-      .get<TClasificacion>(`/api/clasificacion?tipo=${vista}${aula ? `&aula=${aula}` : ''}`)
+      // Misiones: general para el alumno; por aula solo si quien mira es el docente (aulaId fijo).
+      .get<TClasificacion>(`/api/clasificacion?tipo=${vista}${(vista === 'academia' ? aula : aulaId) ? `&aula=${vista === 'academia' ? aula : aulaId}` : ''}`)
       .then(setDatos)
       .catch((e) => setError(e.message));
   };

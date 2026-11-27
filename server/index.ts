@@ -16,6 +16,10 @@ const lab = new AuditLab({ ruta: RUTA_DB });
 const app = crearApp(lab, {
   logger: true,
   cookieSegura: process.env.COOKIE_SEGURA === 'true',
+  // Registro de alumnos desde el login: AUDITLAB_REGISTRO=cerrado lo apaga;
+  // AUDITLAB_DOMINIO_REGISTRO=* acepta cualquier correo (por defecto solo @udh.edu.pe).
+  registroAbierto: process.env.AUDITLAB_REGISTRO !== 'cerrado',
+  dominioRegistro: process.env.AUDITLAB_DOMINIO_REGISTRO === '*' ? null : (process.env.AUDITLAB_DOMINIO_REGISTRO ?? 'udh.edu.pe'),
   carpetaWeb: path.join(RAIZ, 'dist'),
 });
 

@@ -31,6 +31,7 @@ const Banco = perezoso(() => import('./pages/docente/Banco'), 'Banco');
 const ProyectosDocente = perezoso(() => import('./pages/docente/Proyectos'), 'ProyectosDocente');
 const EditorProyecto = perezoso(() => import('./pages/docente/Proyectos'), 'EditorProyecto');
 const ControlProyecto = perezoso(() => import('./pages/docente/Proyectos'), 'ControlProyecto');
+const MisionesDocente = perezoso(() => import('./pages/docente/Misiones'), 'MisionesDocente');
 const CatalogoCasos = perezoso(() => import('./pages/CasosCatalogo'), 'CatalogoCasos');
 const DetalleCatalogo = perezoso(() => import('./pages/CasosCatalogo'), 'DetalleCatalogo');
 const SalaPrueba = perezoso(() => import('./pages/CasosCatalogo'), 'SalaPrueba');
@@ -118,8 +119,8 @@ function LayoutDocente() {
   const menu: ItemMenu[] = [
     { to: '/docente/aulas', label: 'Mis aulas', icon: School },
     { to: '/docente/preguntas', label: 'Banco de preguntas', icon: FileQuestion },
-    { to: '/docente/proyectos', label: 'Proyectos por equipos', icon: Swords },
-    { to: '/docente/misiones', label: 'Misiones', icon: Compass },
+    { to: '/docente/proyectos', label: 'Actividades en vivo', icon: Swords },
+    { to: '/docente/misiones', label: 'Misiones de mis alumnos', icon: Compass },
     { to: '/docente/academia', label: 'Fichas normativas', icon: BookOpen },
     { to: '/docente/perfil', label: 'Mi cuenta', icon: User },
   ];
@@ -138,7 +139,7 @@ function LayoutAdmin() {
     { to: '/admin/usuarios', label: 'Usuarios', icon: Users },
     { to: '/admin/aulas', label: 'Aulas', icon: School },
     { to: '/admin/preguntas', label: 'Banco de preguntas', icon: FileQuestion },
-    { to: '/admin/proyectos', label: 'Proyectos', icon: Swords },
+    { to: '/admin/proyectos', label: 'Actividades en vivo', icon: Swords },
     { to: '/admin/misiones', label: 'Misiones', icon: Compass },
     { to: '/admin/perfil', label: 'Mi cuenta', icon: User },
   ];
@@ -163,7 +164,7 @@ function rutasGestion(base: '/docente' | '/admin') {
       <Route path="proyectos/nuevo" element={<EditorProyecto base={base} />} />
       <Route path="proyectos/:id" element={<ControlProyecto base={base} />} />
       <Route path="proyectos/:id/editar" element={<EditorProyecto base={base} />} />
-      <Route path="misiones" element={<MisionesGeneral base={base} />} />
+      <Route path="misiones" element={base === '/docente' ? <MisionesDocente base={base} /> : <MisionesGeneral base={base} />} />
       <Route path="casos" element={<CatalogoCasos base={`${base}/casos`} />} />
       <Route path="casos/:id" element={<DetalleCatalogo base={`${base}/casos`} academia={`${base}/academia`} />} />
       <Route path="casos/:id/resultado" element={<ResultadoPrueba base={`${base}/casos`} />} />
@@ -178,6 +179,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Portada />} />
       <Route path="/ingresar" element={<Ingresar />} />
+      <Route path="/registro" element={<Navigate to="/ingresar?registro=1" replace />} />
 
       <Route
         path="/app"

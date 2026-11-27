@@ -129,7 +129,8 @@ export interface ProgresoAcademia {
   segundosContrarreloj: number;
   recordContrarreloj: number;
   observadas: number;
-  lecciones: Record<string, { desbloqueada: boolean; completada: boolean; estrellas: number; mejorXp: number; intentos: number; preguntas: number; precision: number | null }>;
+  preguntasDeTuDocente: number;
+  lecciones: Record<string, { desbloqueada: boolean; completada: boolean; estrellas: number; mejorXp: number; intentos: number; preguntas: number; deTuDocente: number; precision: number | null }>;
   modulos: Record<string, { precision: number | null }>;
 }
 
@@ -152,7 +153,7 @@ export interface ResultadoLeccion {
   insigniasNuevas: string[];
 }
 
-export type PreguntaBanco = Pregunta & { respondida: number; acierto: number | null };
+export type PreguntaBanco = Pregunta & { respondida: number; acierto: number | null; editable: boolean };
 
 // --- Aulas y seguimiento ----------------------------------------------------------------------------------------
 
@@ -194,7 +195,26 @@ export interface SeguimientoAula {
   precision: number | null;
   leccionesPromedio: number;
   proyectos: ResumenProyecto[];
+  misiones: MisionGrupo[];
+  /** Preguntas propias del docente que ven los alumnos de esta aula. */
+  preguntasPropias: number;
 }
+
+/** Cómo les va a un grupo de alumnos en una misión. */
+export interface MisionGrupo {
+  id: string;
+  numero: string;
+  titulo: string;
+  empresa: string;
+  alumnos: number;
+  resolvieron: number;
+  precision: number | null;
+  hallazgos: number | null;
+  xpPromedio: number | null;
+  minutos: number | null;
+}
+
+export type AulaAdmin = AulaDocente & { precision: number | null; leccionesPromedio: number; misionesPromedio: number; activosSemana: number; preguntasDocente: number };
 
 export interface DetalleAlumno {
   alumno: { id: string; nombre: string; correo: string; codigo: string | null; ultimoAcceso: string | null; creado: string; aulas: AulaCorta[] };
@@ -222,6 +242,8 @@ export interface ResumenProyecto {
   aula: string;
   docente: string;
   duracionMin: number;
+  /** «individual»: cada alumno responde solo (como un Kahoot); «equipos»: un puesto por equipo. */
+  modo: 'individual' | 'equipos';
   estado: EstadoProyecto;
   inicio: string | null;
   fin: string | null;
@@ -282,9 +304,19 @@ export interface UsuarioAdmin {
 export interface ResumenAdmin {
   usuarios: { admin: number; docente: number; estudiante: number; activosSemana: number; sinAula: number };
   intentosMisiones: number;
-  academia: { intentos: number; respuestas: number; precision: number | null; preguntas: number; preguntasDocentes: number };
+  academia: {
+    intentos: number;
+    respuestas: number;
+    precision: number | null;
+    preguntas: number;
+    preguntasDocentes: number;
+    porDocente: { id: string; nombre: string; n: number }[];
+    dominio: SeguimientoAula['dominio'];
+    masFalladas: SeguimientoAula['masFalladas'];
+    leccionesPromedio: number;
+  };
   actividad: { dia: string; misiones: number; academia: number }[];
-  aulas: AulaDocente[];
+  aulas: AulaAdmin[];
   proyectos: { total: number; finalizados: number };
   misiones: { id: string; numero: string; titulo: string; estado: 'activa' | 'en_preparacion'; resolvieron: number }[];
 }

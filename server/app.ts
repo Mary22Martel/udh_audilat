@@ -1,6 +1,6 @@
 /**
  * API de AUDIT LAB. Cada ruta comprueba la sesión y el rol antes de responder.
- *   /api/ingresar, /api/salir, /api/yo, /api/clave             → todos
+ *   /api/ingresar, /api/registro, /api/salir, /api/yo, /api/clave → todos (registro: solo crea estudiantes)
  *   /api/alumno/*, /api/academia/*, /api/avisos/*                → estudiante
  *   /api/docente/*, /api/preguntas/*                             → docente (y admin)
  *   /api/proyectos/:id/tablero, /api/clasificacion               → según acceso
@@ -22,7 +22,21 @@ declare module 'fastify' {
 
 type Cuerpo = Record<string, unknown>;
 
-export function crearApp(lab: AuditLab, opciones: { cookieSegura?: boolean; carpetaWeb?: string; logger?: boolean } = {}) {
+export interface OpcionesApp {
+  cookieSegura?: boolean;
+  carpetaWeb?: string;
+  logger?: boolean;
+  /** ¿Los alumnos pueden crear su cuenta desde el login? (por defecto, sí) */
+  registroAbierto?: boolean;
+  /** Dominio de correo exigido en el registro (por defecto «udh.edu.pe»; null = cualquiera). */
+  dominioRegistro?: string | null;
+}
+
+export function crearApp(lab: AuditLab, opciones: OpcionesApp = {}) {
+  const registroAbierto = opciones.registroAbierto ?? true;
+  const dominioRegistro = opciones.dominioRegistro === undefined ? 'udh.edu.pe' : opciones.dominioRegistro;
+  // Freno simple contra registros masivos: hasta 10 cuentas por hora desde la misma IP.
+  const registrosPorIp = new Map<string, number[]>();
   const app = Fastify({ logger: opciones.logger ?? false, disableRequestLogging: true, bodyLimit: 2_000_000 });
   app.register(cookie);
   app.decorateRequest('usuario', null);
@@ -57,6 +71,21 @@ export function crearApp(lab: AuditLab, opciones: { cookieSegura?: boolean; carp
     const { token, usuario } = lab.ingresar(correo ?? '', clave ?? '');
     reply.setCookie(COOKIE, token, { path: '/', httpOnly: true, sameSite: 'lax', secure: !!opciones.cookieSegura, maxAge: 7 * 86400 });
     return { usuario: perfil(usuario) };
+  });
+
+  app.get('/api/registro', async () => ({ abierto: registroAbierto, dominio: dominioRegistro }));
+
+  app.post('/api/registro', async (req, reply) => {
+    if (!registroAbierto) throw new ErrorApp('El registro está cerrado. Pide tu cuenta al administrador.', 403);
+    const ahora = Date.now();
+    const recientes = (registrosPorIp.get(req.ip) ?? []).filter((t) => ahora - t < 3600_000);
+    if (recientes.length >= 10) throw new ErrorApp('Demasiados registros desde esta conexión. Intenta más tarde.', 429);
+    const d = cuerpo(req) as { nombre?: string; correo?: string; clave?: string; codigoAula?: string };
+    const { usuario, aula } = lab.registrarAlumno(d, dominioRegistro);
+    registrosPorIp.set(req.ip, [...recientes, ahora]);
+    const { token } = lab.ingresar(usuario.correo, String(d.clave ?? ''));
+    reply.setCookie(COOKIE, token, { path: '/', httpOnly: true, sameSite: 'lax', secure: !!opciones.cookieSegura, maxAge: 7 * 86400 });
+    return { usuario: perfil(lab.usuario(usuario.id)!), aula };
   });
 
   app.post('/api/salir', async (req, reply) => {
@@ -140,7 +169,20 @@ export function crearApp(lab: AuditLab, opciones: { cookieSegura?: boolean; carp
         return { ...a, nombre: f.nombre, correo: f.correo, codigo: f.codigo, activo: f.activo === 1, ultimoAcceso: f.ultimo_acceso };
       }),
       proyectos: lab.proyectos.deDocente(req.usuario!).filter((p) => p.aulaId === aula.id),
+      misiones: lab.misionesDeAlumnos(filas.map((f) => f.id)),
+      preguntasPropias: lab.academia.banco(req.usuario!).filter((p) => p.alcance === 'aula' && (!p.aulaId || p.aulaId === aula.id) && p.autorId === aula.docenteId).length,
     };
+  });
+
+  /** Misiones de los alumnos del docente (por aula). El admin ve la clasificación general aparte. */
+  app.get('/api/docente/misiones', { preHandler: exigir('docente', 'admin') }, async (req) => {
+    const u = req.usuario!;
+    const aulas = u.rol === 'admin' ? lab.aulas.todas() : lab.aulas.deDocente(u.id);
+    const { aula } = req.query as { aula?: string };
+    const elegida = aulas.find((a) => a.id === aula) ?? aulas.find((a) => !a.archivada) ?? aulas[0] ?? null;
+    if (!elegida) return { aulas: [], aula: null, misiones: [] };
+    const ids = lab.aulas.filasAlumnos(elegida.id).map((f) => f.id);
+    return { aulas: aulas.map((a) => ({ id: a.id, nombre: a.nombre, alumnos: a.alumnos, archivada: a.archivada })), aula: { id: elegida.id, nombre: elegida.nombre }, misiones: lab.misionesDeAlumnos(ids) };
   });
 
   app.delete('/api/docente/aulas/:id/alumnos/:alumno', { preHandler: exigir('docente', 'admin') }, async (req) => {
@@ -169,16 +211,16 @@ export function crearApp(lab: AuditLab, opciones: { cookieSegura?: boolean; carp
 
   // --- Banco de preguntas ---------------------------------------------------------------------------------------
 
-  app.get('/api/preguntas', { preHandler: exigir('docente', 'admin') }, async () => ({ preguntas: lab.academia.banco() }));
+  app.get('/api/preguntas', { preHandler: exigir('docente', 'admin') }, async (req) => ({ preguntas: lab.academia.banco(req.usuario!) }));
   app.post('/api/preguntas', { preHandler: exigir('docente', 'admin') }, async (req) => ({ pregunta: lab.academia.crearPregunta(req.usuario!, cuerpo(req) as never) }));
-  app.put('/api/preguntas/:id', { preHandler: exigir('docente', 'admin') }, async (req) => ({ pregunta: lab.academia.actualizarPregunta(param(req), cuerpo(req) as never) }));
+  app.put('/api/preguntas/:id', { preHandler: exigir('docente', 'admin') }, async (req) => ({ pregunta: lab.academia.actualizarPregunta(req.usuario!, param(req), cuerpo(req) as never) }));
   app.post('/api/preguntas/:id/estado', { preHandler: exigir('docente', 'admin') }, async (req) => {
-    lab.academia.cambiarEstado(param(req), !!(cuerpo(req) as { activo?: boolean }).activo);
+    lab.academia.cambiarEstado(req.usuario!, param(req), !!(cuerpo(req) as { activo?: boolean }).activo);
     return { ok: true };
   });
-  app.post('/api/preguntas/:id/restaurar', { preHandler: exigir('docente', 'admin') }, async (req) => ({ pregunta: lab.academia.restaurar(param(req)) }));
+  app.post('/api/preguntas/:id/restaurar', { preHandler: exigir('docente', 'admin') }, async (req) => ({ pregunta: lab.academia.restaurar(req.usuario!, param(req)) }));
   app.delete('/api/preguntas/:id', { preHandler: exigir('docente', 'admin') }, async (req) => {
-    lab.academia.eliminar(param(req));
+    lab.academia.eliminar(req.usuario!, param(req));
     return { ok: true };
   });
 

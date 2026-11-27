@@ -2,7 +2,7 @@
  * Reglas del simulador compartidas por el servidor y la interfaz.
  * Si cambias algo aquí, cambia en los dos lados a la vez.
  */
-import type { MissionRunResult } from '../types/audit';
+import type { Mission, MissionRunResult } from '../types/audit';
 
 /** Misiones con caso completo. Las demás aparecen como «En preparación». */
 export const MISIONES_ACTIVAS = ['mision-01', 'mision-02', 'mision-03', 'mision-04', 'mision-05'] as const;
@@ -120,4 +120,23 @@ export function rachaDias(fechasIso: string[], hoy = new Date()): number {
     cursor.setDate(cursor.getDate() - 1);
   }
   return racha;
+}
+
+/** Combo máximo de la sala de auditoría (x2.5) y bonos fijos por fase. */
+export const COMBO_MAXIMO = 2.5;
+export const XP_CLASIFICACION = 80;
+export const XP_RUPTURA = 60;
+
+/**
+ * XP más alto que se puede ganar en una misión jugándola perfecto: todo con combo máximo,
+ * más la recompensa base y el bono del escudo fiscal al 100 %. El servidor rechaza lo que pase de aquí.
+ */
+export function xpMaximo(m: Mission): number {
+  const aciertos =
+    m.documents.reduce((s, d) => s + d.inspectableFields.filter((f) => f.isAnomaly).reduce((t, f) => t + f.xpReward, 0), 0) +
+    m.comparisonPairs.reduce((s, c) => s + c.xpReward, 0) +
+    XP_CLASIFICACION +
+    m.evidenceConnections.filter((c) => c.isBroken).length * XP_RUPTURA +
+    m.decisions.reduce((s, d) => s + Math.max(0, ...d.options.filter((o) => o.isOptimal).map((o) => o.xpDelta)), 0);
+  return Math.ceil(m.xpReward + aciertos * COMBO_MAXIMO + 80);
 }

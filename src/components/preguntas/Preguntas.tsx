@@ -1,5 +1,5 @@
 import { motion, Reorder } from 'motion/react';
-import { Check, GripVertical, Scale, X } from 'lucide-react';
+import { Check, GripVertical, Scale, School, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { mezclar, NOMBRE_TIPO, type LineaAsiento, type Pregunta, type Respuesta } from '../../lib/preguntas';
 import { Comprobante } from './Comprobante';
@@ -14,6 +14,21 @@ interface PropsJuego<T extends Pregunta['tipo']> {
   onCambio: (r: Extract<Respuesta, { tipo: T }> | null) => void;
   revelar?: boolean;
   bloqueado?: boolean;
+  /** Para mostrar opciones, fichas y pasos en otro orden a cada alumno (la respuesta sigue usando el orden original). */
+  semilla?: number;
+}
+
+/** Semilla estable a partir de un texto (por ejemplo, alumno + pregunta). */
+export function semillaDe(texto: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < texto.length; i++) h = Math.imul(h ^ texto.charCodeAt(i), 16777619);
+  return (h >>> 0) || 1;
+}
+
+/** Orden en que se muestran n elementos: el original o uno mezclado con la semilla. */
+function ordenVisible(n: number, semilla?: number): number[] {
+  const idx = Array.from({ length: n }, (_, i) => i);
+  return semilla ? mezclar(idx, semilla) : idx;
 }
 
 const LETRAS = 'ABCDEFGH';
@@ -22,10 +37,12 @@ const num = (s: string) => {
   return Number.isFinite(n) ? n : NaN;
 };
 
-function Opcion({ p, valor, onCambio, revelar, bloqueado }: PropsJuego<'opcion'>) {
+function Opcion({ p, valor, onCambio, revelar, bloqueado, semilla }: PropsJuego<'opcion'>) {
+  const orden = useMemo(() => ordenVisible(p.opciones.length, semilla), [p.opciones.length, semilla]);
   return (
     <div className="grid gap-2.5">
-      {p.opciones.map((o, i) => {
+      {orden.map((i, pos) => {
+        const o = p.opciones[i];
         const elegida = valor?.indice === i;
         const correcta = revelar && i === p.correcta;
         const mal = revelar && elegida && i !== p.correcta;
@@ -51,7 +68,7 @@ function Opcion({ p, valor, onCambio, revelar, bloqueado }: PropsJuego<'opcion'>
                 correcta ? 'bg-emerald-500 text-white' : mal ? 'bg-rose-500 text-white' : elegida ? 'bg-[var(--c-teal)] text-[var(--c-sobre)]' : 'bg-[var(--c-elevado)]'
               }`}
             >
-              {correcta ? <Check className="w-4 h-4" /> : mal ? <X className="w-4 h-4" /> : LETRAS[i]}
+              {correcta ? <Check className="w-4 h-4" /> : mal ? <X className="w-4 h-4" /> : LETRAS[pos]}
             </span>
             <span className="text-[15px]">{o}</span>
           </motion.button>
@@ -130,7 +147,7 @@ function Calculo({ p, valor, onCambio, revelar, bloqueado }: PropsJuego<'calculo
 
 const COLOR_GRUPO = ['#48a6a7', '#f2b632', '#e4572e', '#8e7dbe', '#3fa34d', '#2d7dd2'];
 
-function Clasificar({ p, valor, onCambio, revelar, bloqueado }: PropsJuego<'clasificar'>) {
+function Clasificar({ p, valor, onCambio, revelar, bloqueado, semilla }: PropsJuego<'clasificar'>) {
   const grupos = valor?.grupos ?? p.items.map(() => -1);
   const [elegido, setElegido] = useState<number | null>(null);
   const asignar = (item: number, grupo: number) => {
@@ -139,12 +156,15 @@ function Clasificar({ p, valor, onCambio, revelar, bloqueado }: PropsJuego<'clas
     onCambio(g.every((x) => x >= 0) ? { tipo: 'clasificar', grupos: g } : { tipo: 'clasificar', grupos: g });
     setElegido(null);
   };
-  const sueltos = p.items.map((it, i) => ({ ...it, i })).filter((x) => grupos[x.i] < 0);
+  const ordenItems = useMemo(() => ordenVisible(p.items.length, semilla), [p.items.length, semilla]);
+  const sueltos = ordenItems.map((i) => ({ ...p.items[i], i })).filter((x) => grupos[x.i] < 0);
 
-  const Ficha = ({ i, texto }: { i: number; texto: string }) => {
+  // Se dibuja con una función (no un componente anidado): así no se vuelve a crear en cada actualización y no «salta».
+  const ficha = (i: number, texto: string) => {
     const ok = revelar ? grupos[i] === p.items[i].grupo : null;
     return (
       <motion.button
+        key={i}
         layout
         layoutId={`ficha-${p.id}-${i}`}
         type="button"
@@ -172,9 +192,7 @@ function Clasificar({ p, valor, onCambio, revelar, bloqueado }: PropsJuego<'clas
         <div className="space-y-2">
           <p className="text-xs text-[var(--c-suave)]">{elegido === null ? 'Toca una ficha y luego el grupo donde va.' : 'Ahora toca el grupo.'}</p>
           <div className="flex flex-wrap gap-2">
-            {sueltos.map((x) => (
-              <Ficha key={x.i} i={x.i} texto={x.texto} />
-            ))}
+            {sueltos.map((x) => ficha(x.i, x.texto))}
           </div>
         </div>
       )}
@@ -192,7 +210,7 @@ function Clasificar({ p, valor, onCambio, revelar, bloqueado }: PropsJuego<'clas
               {g}
             </p>
             <div className="flex flex-col gap-1.5" onClick={(e) => e.stopPropagation()}>
-              {p.items.map((it, i) => (grupos[i] === gi ? <Ficha key={i} i={i} texto={it.texto} /> : null))}
+              {p.items.map((it, i) => (grupos[i] === gi ? ficha(i, it.texto) : null))}
             </div>
           </button>
         ))}
@@ -294,13 +312,15 @@ function Documento({ p, valor, onCambio, revelar, bloqueado }: PropsJuego<'docum
   );
 }
 
-function Ordenar({ p, valor, onCambio, revelar, bloqueado }: PropsJuego<'ordenar'>) {
-  // En la Academia la pregunta trae el orden correcto: se mezcla para mostrarla (con semilla, para que no cambie).
-  const inicial = useMemo(() => {
-    let m = mezclar(p.pasos, p.id.length * 31 + p.pasos.length);
-    if (m.join('|') === p.pasos.join('|')) m = [...p.pasos].reverse();
-    return m;
-  }, [p.id, p.pasos]);
+/** Orden inicial de los pasos: mezclado (con la semilla del alumno, o fija si no hay) y nunca ya resuelto. */
+function pasosMezclados(p: Extract<Pregunta, { tipo: 'ordenar' }>, semilla?: number) {
+  let m = mezclar(p.pasos, semilla ?? p.id.length * 31 + p.pasos.length);
+  if (m.join('|') === p.pasos.join('|')) m = [...p.pasos].reverse();
+  return m;
+}
+
+function Ordenar({ p, valor, onCambio, revelar, bloqueado, semilla }: PropsJuego<'ordenar'>) {
+  const inicial = useMemo(() => pasosMezclados(p, semilla), [p, semilla]);
   const orden = valor?.orden ?? inicial;
   return (
     <div className="space-y-2">
@@ -330,19 +350,38 @@ function Ordenar({ p, valor, onCambio, revelar, bloqueado }: PropsJuego<'ordenar
 }
 
 /** Respuesta inicial: en «ordenar» el orden mostrado ya es una respuesta válida. */
-export function respuestaInicial(p: Pregunta): Respuesta | null {
+export function respuestaInicial(p: Pregunta, semilla?: number): Respuesta | null {
   if (p.tipo !== 'ordenar') return null;
-  let m = mezclar(p.pasos, p.id.length * 31 + p.pasos.length);
-  if (m.join('|') === p.pasos.join('|')) m = [...p.pasos].reverse();
-  return { tipo: 'ordenar', orden: m };
+  return { tipo: 'ordenar', orden: pasosMezclados(p, semilla) };
 }
 
-export function JuegoPregunta({ p, valor, onCambio, revelar, bloqueado }: { p: Pregunta; valor: Respuesta | null; onCambio: (r: Respuesta | null) => void; revelar?: boolean; bloqueado?: boolean }) {
-  const comunes = { revelar, bloqueado, onCambio: onCambio as never, valor: valor as never };
+export function JuegoPregunta({
+  p,
+  valor,
+  onCambio,
+  revelar,
+  bloqueado,
+  semilla,
+}: {
+  p: Pregunta;
+  valor: Respuesta | null;
+  onCambio: (r: Respuesta | null) => void;
+  revelar?: boolean;
+  bloqueado?: boolean;
+  semilla?: number;
+}) {
+  const comunes = { revelar, bloqueado, semilla, onCambio: onCambio as never, valor: valor as never };
   return (
     <div className="space-y-5">
       <div>
-        <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[var(--c-oro)]">{NOMBRE_TIPO[p.tipo].juego}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[var(--c-oro)]">{NOMBRE_TIPO[p.tipo].juego}</p>
+          {p.alcance === 'aula' && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[var(--c-teal)]/15 text-[var(--c-teal)] text-[10px] font-bold uppercase tracking-wider">
+              <School className="w-3 h-3" /> Pregunta de tu docente{p.autor ? ` · ${p.autor}` : ''}
+            </span>
+          )}
+        </div>
         <h2 className="font-display text-xl sm:text-2xl font-bold leading-snug mt-1.5">{p.enunciado}</h2>
       </div>
       {p.tipo === 'opcion' && <Opcion p={p} {...comunes} />}

@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ArrowRight, Flame, RotateCcw, Shield, ShieldOff, Star, Timer, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { JuegoPregunta, respuestaCompleta, respuestaInicial } from '../../components/preguntas/Preguntas';
+import { JuegoPregunta, respuestaCompleta, respuestaInicial, semillaDe } from '../../components/preguntas/Preguntas';
 import { BotonTema } from '../../components/shell/Shell';
 import { CajaError, Cargando } from '../../components/ui';
 import { LECCIONES } from '../../data/academiaCurso';
@@ -161,6 +161,9 @@ export function Juego({ modo }: { modo: Modo }) {
   const [restante, setRestante] = useState(60);
   const inicio = useRef(Date.now());
   const enviando = useRef(false);
+  // Cada intento muestra opciones, fichas y pasos en otro orden (las preguntas ya llegan mezcladas del servidor).
+  const semillaIntento = useRef(1);
+  const semilla = (q: Pregunta) => semillaDe(`${semillaIntento.current}:${q.id}`);
   const leccion = LECCIONES.find((l) => l.id === id);
 
   // Cargar preguntas
@@ -179,10 +182,11 @@ export function Juego({ modo }: { modo: Modo }) {
       .get<{ preguntas: Pregunta[]; vidas?: number; segundos?: number }>(url)
       .then((r) => {
         if (!r.preguntas.length) throw new Error(modo === 'repaso' ? 'No tienes preguntas para repasar.' : 'Aún no hay preguntas disponibles. Completa una lección primero.');
+        semillaIntento.current = Math.floor(Math.random() * 1e9) + 1;
         setPreguntas(r.preguntas);
         setVidasMax(r.vidas ?? 3);
         setRestante(r.segundos ?? 60);
-        setValor(respuestaInicial(r.preguntas[0]));
+        setValor(respuestaInicial(r.preguntas[0], semilla(r.preguntas[0])));
         inicio.current = Date.now();
       })
       .catch((e) => setError(e.message));
@@ -248,7 +252,7 @@ export function Juego({ modo }: { modo: Modo }) {
       if (idx + 1 >= preguntas.length) terminar(nuevas);
       else {
         setIdx(idx + 1);
-        setValor(respuestaInicial(preguntas[idx + 1]));
+        setValor(respuestaInicial(preguntas[idx + 1], semilla(preguntas[idx + 1])));
       }
       return;
     }
@@ -262,7 +266,7 @@ export function Juego({ modo }: { modo: Modo }) {
       return;
     }
     setIdx(idx + 1);
-    setValor(respuestaInicial(preguntas[idx + 1]));
+    setValor(respuestaInicial(preguntas[idx + 1], semilla(preguntas[idx + 1])));
     setFase('responder');
     window.scrollTo({ top: 0 });
   };
@@ -351,6 +355,7 @@ export function Juego({ modo }: { modo: Modo }) {
             )}
             <JuegoPregunta
               p={p}
+              semilla={semilla(p)}
               valor={valor}
               revelar={fase === 'revisar'}
               onCambio={(r) => {

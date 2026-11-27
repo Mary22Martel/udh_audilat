@@ -258,7 +258,18 @@ export type Pregunta = DatosPregunta & {
   autor?: string | null;
   activo?: boolean;
   editada?: boolean;
+  /**
+   * A quién le llega: «base» (del sistema, para todos), «general» (la creó el admin, para todos)
+   * o «aula» (la creó un docente: solo la ven los alumnos de sus aulas).
+   */
+  alcance?: AlcancePregunta;
+  autorId?: string | null;
+  /** Solo en las de un docente: aula elegida (null = todas sus aulas). */
+  aulaId?: string | null;
+  aulaNombre?: string | null;
 };
+
+export type AlcancePregunta = 'base' | 'general' | 'aula';
 
 export const NOMBRE_TIPO: Record<TipoPregunta, { nombre: string; juego: string }> = {
   opcion: { nombre: 'Opción múltiple', juego: 'Dictamen' },

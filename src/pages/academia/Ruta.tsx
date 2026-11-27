@@ -1,5 +1,5 @@
 import { motion } from 'motion/react';
-import { ArrowRight, BookOpen, Boxes, Landmark, Lock, Percent, Play, Receipt, RotateCcw, Scale, Star, Timer, Trophy, type LucideIcon } from 'lucide-react';
+import { ArrowRight, BookOpen, Boxes, Landmark, Lock, Percent, Play, Receipt, RotateCcw, Scale, Star, Timer, Trophy, type LucideIcon, School } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { CajaError, Cargando, Pagina, Tarjeta, colorNivel } from '../../components/ui';
@@ -38,18 +38,18 @@ export function Ruta() {
   return (
     <Pagina>
       {/* Cabecera */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative overflow-hidden rounded-3xl bg-[#0b1a26] text-white p-6 sm:p-8">
-        <div className="absolute inset-0 opacity-[0.07] bg-[repeating-linear-gradient(0deg,transparent,transparent_23px,#fff_23px,#fff_24px)]" />
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="relative overflow-hidden rounded-3xl bg-[var(--h-fondo)] text-[var(--h-texto)] p-6 sm:p-8">
+        <div className="absolute inset-0 opacity-[0.07] bg-[repeating-linear-gradient(0deg,transparent,transparent_23px,var(--h-linea)_23px,var(--h-linea)_24px)]" />
         <div className="absolute -right-16 -top-16 w-72 h-72 rounded-full bg-[#48a6a7]/20 blur-3xl" />
         <div className="relative grid lg:grid-cols-12 gap-6 items-center">
           <div className="lg:col-span-7 space-y-3">
-            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#7fd0d1]">Academia · Ruta de certificación</p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--h-acento)]">Academia · Ruta de certificación</p>
             <h1 className="font-display text-3xl sm:text-4xl font-extrabold leading-tight">Certifícate como auditor junior</h1>
-            <p className="text-white/70 max-w-lg">Seis módulos de contabilidad y tributación. Cada lección es una prueba de campo: si te equivocas tres veces, el expediente queda observado.</p>
+            <p className="text-[var(--h-suave)] max-w-lg">Seis módulos de contabilidad y tributación. Cada lección es una prueba de campo: si te equivocas tres veces, el expediente queda observado.</p>
             {siguiente && (
               <button
                 onClick={() => navigate(`/app/academia/leccion/${siguiente.id}`)}
-                className="mt-2 inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#48a6a7] hover:bg-[#3d9495] font-semibold transition-colors"
+                className="mt-2 inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-[#48a6a7] hover:bg-[#3d9495] text-white font-semibold transition-colors"
               >
                 <Play className="w-4 h-4 fill-white" /> Continuar: {siguiente.titulo}
               </button>
@@ -61,18 +61,27 @@ export function Ruta() {
               { v: estrellas, t: 'estrellas', s: `de ${LECCIONES.length * 3}` },
               { v: p.xp.toLocaleString('es-PE'), t: 'XP Academia', s: p.precision !== null ? `${p.precision} % aciertos` : 'sin respuestas' },
             ].map((x) => (
-              <div key={x.t} className="rounded-2xl bg-white/8 border border-white/10 p-4 text-center">
-                <p className="font-display text-2xl font-extrabold text-[#f2b632]">{x.v}</p>
-                <p className="text-[11px] uppercase tracking-wider text-white/60 mt-0.5">{x.t}</p>
-                <p className="text-[10px] text-white/45 mt-1">{x.s}</p>
+              <div key={x.t} className="rounded-2xl bg-[var(--h-vidrio)] border border-[var(--h-borde)] p-4 text-center">
+                <p className="font-display text-2xl font-extrabold text-[var(--h-oro)]">{x.v}</p>
+                <p className="text-[11px] uppercase tracking-wider text-[var(--h-tenue)] mt-0.5">{x.t}</p>
+                <p className="text-[10px] text-[var(--h-tenue)] mt-1">{x.s}</p>
               </div>
             ))}
           </div>
         </div>
-        <div className="relative mt-6 h-2 rounded-full bg-white/10 overflow-hidden">
+        <div className="relative mt-6 h-2 rounded-full bg-[var(--h-borde)] overflow-hidden">
           <motion.div className="h-full bg-gradient-to-r from-[#48a6a7] to-[#f2b632]" initial={{ width: 0 }} animate={{ width: `${avance}%` }} transition={{ duration: 1, ease: 'easeOut' }} />
         </div>
       </motion.div>
+
+      {p.preguntasDeTuDocente > 0 && (
+        <Tarjeta className="p-4 flex items-center gap-3 border-[var(--c-teal)]/40">
+          <School className="w-5 h-5 text-[var(--c-teal)] shrink-0" />
+          <p className="text-sm">
+            Tu docente agregó <strong>{p.preguntasDeTuDocente} {p.preguntasDeTuDocente === 1 ? 'pregunta' : 'preguntas'}</strong> a tus lecciones. Las verás marcadas como «Pregunta de tu docente».
+          </p>
+        </Tarjeta>
+      )}
 
       {/* Modos de juego */}
       <div className="grid sm:grid-cols-2 gap-4">
@@ -178,6 +187,7 @@ export function Ruta() {
                         <p className="text-xs text-[var(--c-suave)] mt-1">{l.descripcion}</p>
                         <p className="text-[11px] text-[var(--c-suave)] mt-3 font-mono">
                           {e?.preguntas ?? 0} preguntas
+                          {e?.deTuDocente ? <span className="text-[var(--c-teal)] font-semibold"> · {e.deTuDocente} de tu docente</span> : null}
                           {e?.completada ? ` · mejor ${e.mejorXp} XP` : e?.intentos ? ` · ${e.intentos} ${e.intentos === 1 ? 'intento' : 'intentos'}` : ''}
                         </p>
                       </motion.button>

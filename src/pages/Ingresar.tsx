@@ -1,29 +1,56 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { AlertCircle, ArrowLeft, ArrowRight, Eye, EyeOff, Lock, Mail } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { RUTA_INICIO } from '../lib/api';
+import { AlertCircle, ArrowLeft, ArrowRight, Eye, EyeOff, KeyRound, Lock, Mail, User } from 'lucide-react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { api, RUTA_INICIO } from '../lib/api';
 import { useSesion } from '../lib/sesion';
 
 export function Ingresar() {
-  const { usuario, ingresar } = useSesion();
+  const { usuario, ingresar, registrar } = useSesion();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const registro = params.get('registro') === '1';
+  const [config, setConfig] = useState<{ abierto: boolean; dominio: string | null }>({ abierto: true, dominio: 'udh.edu.pe' });
+  const [nombre, setNombre] = useState('');
+  const [codigoAula, setCodigoAula] = useState('');
+  const [clave2, setClave2] = useState('');
   const [correo, setCorreo] = useState('');
   const [clave, setClave] = useState('');
   const [ver, setVer] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  // A dónde ir al terminar (al registrarse con código de aula, a «Mis aulas»).
+  const [destino, setDestino] = useState<string | null>(null);
 
-  if (usuario) return <Navigate to={RUTA_INICIO[usuario.rol]} replace />;
+  useEffect(() => {
+    api.get<{ abierto: boolean; dominio: string | null }>('/api/registro').then(setConfig).catch(() => undefined);
+  }, []);
+
+  if (usuario) return <Navigate to={destino ?? RUTA_INICIO[usuario.rol]} replace />;
+
+  const cambiarModo = (r: boolean) => {
+    setError(null);
+    setParams(r ? { registro: '1' } : {}, { replace: true });
+  };
 
   const enviar = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (registro && clave !== clave2) {
+      setError('Las contraseñas no coinciden.');
+      return;
+    }
     setEnviando(true);
     try {
+      if (registro) {
+        if (codigoAula.trim()) setDestino('/app/aulas');
+        await registrar({ nombre, correo, clave, codigoAula: codigoAula || undefined });
+        return;
+      }
       const u = await ingresar(correo, clave);
       navigate(RUTA_INICIO[u.rol], { replace: true });
     } catch (err) {
+      setDestino(null);
       setError((err as Error).message);
     } finally {
       setEnviando(false);
@@ -69,7 +96,7 @@ export function Ingresar() {
           <img src="/marca/udh-logo-oscuro.webp" alt="" className="h-8 w-auto lg:hidden" />
         </div>
 
-        <div className="flex-1 flex items-center justify-center">
+        <div className="flex-1 flex items-center justify-center py-8">
           <motion.form
             onSubmit={enviar}
             initial={{ opacity: 0, y: 16 }}
@@ -81,28 +108,89 @@ export function Ingresar() {
               <p className="font-display font-extrabold text-[#0f2a3d] leading-none">
                 AUDIT <span className="text-[#48a6a7]">LAB</span>
               </p>
-              <h1 className="font-display text-3xl font-extrabold text-[#0f2a3d] tracking-tight">Ingresa a tu laboratorio</h1>
-              <p className="text-slate-500 text-sm">Usa el correo y la contraseña que te entregó tu docente o la administración.</p>
+              <h1 className="font-display text-3xl font-extrabold text-[#0f2a3d] tracking-tight">{registro ? 'Crea tu cuenta de alumno' : 'Ingresa a tu laboratorio'}</h1>
+              <p className="text-slate-500 text-sm">
+                {registro
+                  ? `Solo para estudiantes${config.dominio ? `, con tu correo @${config.dominio}` : ''}. Las cuentas de docente las crea el administrador.`
+                  : 'Usa tu correo y tu contraseña. Si eres alumno y aún no tienes cuenta, puedes crearla.'}
+              </p>
             </div>
 
+            {config.abierto && (
+              <div className="grid grid-cols-2 p-1 rounded-xl bg-slate-100 text-sm font-semibold">
+                {[
+                  { r: false, t: 'Ya tengo cuenta' },
+                  { r: true, t: 'Soy alumno nuevo' },
+                ].map((o) => (
+                  <button
+                    key={o.t}
+                    type="button"
+                    onClick={() => cambiarModo(o.r)}
+                    className={`py-2 rounded-lg transition-colors ${registro === o.r ? 'bg-white text-[#0f2a3d] shadow-sm' : 'text-slate-500 hover:text-[#0f2a3d]'}`}
+                  >
+                    {o.t}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="space-y-3">
+              {registro && (
+                <label className="block">
+                  <span className="text-sm font-medium text-[#0f2a3d]">Nombre completo</span>
+                  <span className="relative block mt-1.5">
+                    <User className="w-[18px] h-[18px] text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                    <input autoComplete="name" required minLength={3} value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombres y apellidos" className={campo} />
+                  </span>
+                </label>
+              )}
               <label className="block">
                 <span className="text-sm font-medium text-[#0f2a3d]">Correo</span>
                 <span className="relative block mt-1.5">
                   <Mail className="w-[18px] h-[18px] text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
-                  <input type="email" autoComplete="username" required value={correo} onChange={(e) => setCorreo(e.target.value)} placeholder="tucodigo@udh.edu.pe" className={campo} />
+                  <input type="email" autoComplete={registro ? 'email' : 'username'} required value={correo} onChange={(e) => setCorreo(e.target.value)} placeholder={`tucodigo@${config.dominio ?? 'udh.edu.pe'}`} className={campo} />
                 </span>
               </label>
               <label className="block">
                 <span className="text-sm font-medium text-[#0f2a3d]">Contraseña</span>
                 <span className="relative block mt-1.5">
                   <Lock className="w-[18px] h-[18px] text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
-                  <input type={ver ? 'text' : 'password'} autoComplete="current-password" required value={clave} onChange={(e) => setClave(e.target.value)} placeholder="••••••••" className={`${campo} pr-12`} />
+                  <input
+                    type={ver ? 'text' : 'password'}
+                    autoComplete={registro ? 'new-password' : 'current-password'}
+                    required
+                    minLength={registro ? 8 : undefined}
+                    value={clave}
+                    onChange={(e) => setClave(e.target.value)}
+                    placeholder={registro ? 'Mínimo 8 caracteres' : '••••••••'}
+                    className={`${campo} pr-12`}
+                  />
                   <button type="button" onClick={() => setVer((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600" aria-label={ver ? 'Ocultar contraseña' : 'Mostrar contraseña'}>
                     {ver ? <EyeOff className="w-[18px] h-[18px]" /> : <Eye className="w-[18px] h-[18px]" />}
                   </button>
                 </span>
               </label>
+              {registro && (
+                <>
+                  <label className="block">
+                    <span className="text-sm font-medium text-[#0f2a3d]">Repite la contraseña</span>
+                    <span className="relative block mt-1.5">
+                      <Lock className="w-[18px] h-[18px] text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                      <input type={ver ? 'text' : 'password'} autoComplete="new-password" required value={clave2} onChange={(e) => setClave2(e.target.value)} placeholder="••••••••" className={campo} />
+                    </span>
+                  </label>
+                  <label className="block">
+                    <span className="text-sm font-medium text-[#0f2a3d]">
+                      Código de aula <span className="font-normal text-slate-400">(opcional)</span>
+                    </span>
+                    <span className="relative block mt-1.5">
+                      <KeyRound className="w-[18px] h-[18px] text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                      <input value={codigoAula} onChange={(e) => setCodigoAula(e.target.value.toUpperCase())} placeholder="AUD-XXXX" maxLength={8} className={`${campo} font-mono uppercase tracking-widest`} />
+                    </span>
+                    <span className="block text-[11px] text-slate-400 mt-1">Si tu docente ya te dio el código, te unes a su aula de una vez. También puedes hacerlo después.</span>
+                  </label>
+                </>
+              )}
             </div>
 
             <AnimatePresence>
@@ -123,12 +211,16 @@ export function Ingresar() {
               disabled={enviando}
               className="group w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-[#48a6a7] hover:bg-[#3d9495] text-white font-semibold transition-colors shadow-lg shadow-[#48a6a7]/25 disabled:opacity-60"
             >
-              {enviando ? 'Ingresando…' : 'Ingresar'}
+              {enviando ? (registro ? 'Creando tu cuenta…' : 'Ingresando…') : registro ? 'Crear mi cuenta' : 'Ingresar'}
               {!enviando && <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />}
             </button>
 
             <p className="text-xs text-slate-500 leading-relaxed border-t border-slate-200 pt-5">
-              ¿No tienes cuenta u olvidaste tu contraseña? Pídele al administrador del laboratorio que la cree o la restablezca.
+              {registro
+                ? '¿Eres docente? Tu cuenta la crea el administrador del laboratorio.'
+                : config.abierto
+                  ? '¿Olvidaste tu contraseña? Pídele al administrador del laboratorio que la restablezca. Los docentes reciben su cuenta del administrador.'
+                  : '¿No tienes cuenta u olvidaste tu contraseña? Pídele al administrador del laboratorio que la cree o la restablezca.'}
             </p>
           </motion.form>
         </div>

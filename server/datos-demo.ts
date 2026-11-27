@@ -83,6 +83,45 @@ function jugarLeccion(alumnoId: string, leccionId: string, habilidad: number) {
   }
 }
 
+// --- Preguntas propias de cada docente (solo las ven los alumnos de sus aulas) --------------------------------------
+{
+  const doc1 = lab.usuario(d1.id)!;
+  const doc2 = lab.usuario(d2.id)!;
+  const yaTiene = (u: typeof doc1) => lab.academia.banco(u).some((p) => p.alcance === 'aula' && p.autorId === u.id);
+  if (!yaTiene(doc1)) {
+    lab.academia.crearPregunta(doc1, {
+      id: '',
+      leccionId: 'm1-l1',
+      tipo: 'opcion',
+      enunciado: 'Doña Rosa vende abarrotes en el mercado de Huánuco y está en el Nuevo RUS. ¿Qué comprobante puede entregar a sus clientes?',
+      opciones: ['Factura', 'Boleta de venta o ticket', 'Liquidación de compra', 'Recibo por honorarios'],
+      correcta: 1,
+      explicacion: 'En el Nuevo RUS solo se emiten boletas de venta y tickets. Si un cliente necesita factura, el negocio tendría que cambiar de régimen.',
+      aulaId: aula1.id,
+    });
+    lab.academia.crearPregunta(doc1, {
+      id: '',
+      leccionId: 'm1-l2',
+      tipo: 'vf',
+      enunciado: 'La nota de crédito electrónica que modifica una factura usa una serie que empieza con F.',
+      correcta: true,
+      explicacion: 'Correcto. La nota de crédito sigue la serie del comprobante que modifica: si corrige una factura, su serie empieza con F (por ejemplo F001).',
+      aulaId: null,
+    });
+  }
+  if (!yaTiene(doc2)) {
+    lab.academia.crearPregunta(doc2, {
+      id: '',
+      leccionId: 'm1-l1',
+      tipo: 'vf',
+      enunciado: 'El RUC de una persona natural con negocio empieza con 10.',
+      correcta: true,
+      explicacion: 'Correcto. Las personas naturales empiezan con 10 y las personas jurídicas con 20.',
+      aulaId: aula2.id,
+    });
+  }
+}
+
 for (const [lista, aula] of [
   [ALUMNOS, aula1],
   [ALUMNOS_2, aula2],
@@ -107,7 +146,7 @@ for (const [lista, aula] of [
 const docente1 = lab.usuario(d1.id)!;
 if (!lab.proyectos.deDocente(docente1).length) {
   const miembros = lab.aulas.filasAlumnos(aula1.id).map((f) => f.id);
-  const banco = lab.academia.banco();
+  const banco = lab.academia.banco(docente1);
   const elegir = (ids: string[]) => ids.filter((id) => banco.some((p) => p.id === id));
   const equipos = [0, 1, 2].map((e) => ({ nombre: ['Equipo Turquesa', 'Equipo Ámbar', 'Equipo Coral'][e], miembros: miembros.filter((_, i) => i % 3 === e) }));
 
@@ -148,6 +187,16 @@ if (!lab.proyectos.deDocente(docente1).length) {
     preguntas: elegir(['b-m1-09', 'b-m2-04', 'b-m2-09', 'b-m3-07', 'b-m4-02', 'b-m5-07', 'b-m6-07']),
     equipos,
   });
+  // Actividad individual (como un Kahoot): incluye las preguntas propias de la docente.
+  const propias = lab.academia.banco(docente1).filter((p) => p.alcance === 'aula' && p.autorId === docente1.id).map((p) => p.id);
+  lab.proyectos.crear(docente1, {
+    aulaId: aula1.id,
+    nombre: 'Práctica de hoy: comprobantes y Nuevo RUS',
+    descripcion: 'Responde solo. Tienes 20 minutos; al terminar el tiempo la actividad se cierra.',
+    duracionMin: 20,
+    modo: 'individual',
+    preguntas: [...propias, ...elegir(['b-m1-01', 'b-m1-04', 'b-m1-08', 'b-m2-01'])],
+  });
 }
 reloj = null;
 
@@ -156,6 +205,7 @@ console.log('  Administrador  admin@udh.edu.pe       ' + CLAVE_ADMIN);
 console.log('  Docente        docente@udh.edu.pe     ' + CLAVE_DOCENTE + `   aula «${aula1.nombre}» · código ${aula1.codigo}`);
 console.log('  Docente 2      docente2@udh.edu.pe    ' + CLAVE_DOCENTE + `   aula «${aula2.nombre}» · código ${aula2.codigo}`);
 console.log('  Alumna         2023110482@udh.edu.pe  ' + CLAVE_ALUMNO + '    (Valeria; todos los alumnos usan esta clave)');
+console.log('\n  Cada docente ya tiene preguntas propias: solo las ven los alumnos de sus aulas.');
 console.log(`\n  Intentos cargados: ${intentosAcademia} en la Academia, ${intentosMisiones} en misiones.`);
 console.log('  Proyecto listo para jugar en vivo: «Gran reto de auditoría» (cuenta del docente → Proyectos).');
 console.log('  Entra en http://localhost:3000/ingresar');

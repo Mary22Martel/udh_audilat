@@ -74,8 +74,8 @@ export function AulasDocente({ base = '/docente/aulas' }: { base?: string }) {
       const r = await api.post<{ aula: AulaDocente }>('/api/docente/aulas', { nombre });
       setNueva(false);
       setNombre('');
-      await cargar();
-      setProyectar(r.aula);
+      // Va directo a su aula: ahí ve el código en grande y los pasos para empezar.
+      navigate(`${base}/${r.aula.id}?nueva=1`);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -163,7 +163,7 @@ export function AulasDocente({ base = '/docente/aulas' }: { base?: string }) {
         <Modal titulo="Nueva aula" onCerrar={() => setNueva(false)}>
           <form onSubmit={crear} className="space-y-4">
             <input className={estiloCampo} autoFocus value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Auditoría Tributaria – Sección A" required minLength={3} />
-            <p className="text-xs text-[var(--c-suave)]">Al crearla verás el código en grande para proyectarlo en clase.</p>
+            <p className="text-xs text-[var(--c-suave)]">Al crearla verás el código en grande para proyectarlo en clase y los pasos para empezar: agregar tus preguntas y lanzar una actividad.</p>
             <BotonPrincipal className="w-full">Crear aula</BotonPrincipal>
           </form>
         </Modal>

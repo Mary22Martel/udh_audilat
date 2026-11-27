@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { ArrowRight, BookOpen, CheckCircle2, Scale, Sparkles } from 'lucide-react';
 import { ACADEMY_TOPICS } from '../data/academyData';
 import { INITIAL_MISSIONS } from '../data/missionsData';
-import { MISIONES_POR_TEMA } from '../lib/reglas';
+import { MISIONES_ACTIVAS, MISIONES_POR_TEMA } from '../lib/reglas';
 import { AcademyTopic } from '../types/audit';
 
 interface AcademyViewProps {
@@ -34,7 +34,10 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ onPracticeMission, ini
     }
   }, [initialTopicId]);
   const misionesDelTema = (id: string) =>
-    (MISIONES_POR_TEMA[id] ?? []).map((mid) => INITIAL_MISSIONS.find((m) => m.id === mid)).filter(Boolean) as typeof INITIAL_MISSIONS;
+    (MISIONES_POR_TEMA[id] ?? [])
+      .filter((mid) => (MISIONES_ACTIVAS as readonly string[]).includes(mid))
+      .map((mid) => INITIAL_MISSIONS.find((m) => m.id === mid))
+      .filter(Boolean) as typeof INITIAL_MISSIONS;
 
   const visibleTopics = ACADEMY_TOPICS.filter(
     (t) => category === 'Todas' || t.category === category

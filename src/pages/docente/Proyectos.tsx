@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowLeft, Check, Crown, DoorOpen, FileWarning, Flag, Maximize2, Minimize2, Pencil, Play, Plus, RotateCcw, Search, Shuffle, Swords, Trash2, Users, X } from 'lucide-react';
+import { ArrowLeft, Check, Crown, DoorOpen, FileWarning, Flag, Maximize2, Minimize2, Pencil, Play, Plus, RotateCcw, Search, Shuffle, Swords, Trash2, User, Users, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { EditorPregunta, plantillaPregunta } from '../../components/preguntas/Editor';
@@ -35,20 +35,20 @@ export function ProyectosDocente({ base = '/docente' }: { base?: string }) {
   return (
     <Pagina>
       <Encabezado
-        antetitulo="Proyectos por equipos"
-        titulo="Competencias en vivo"
-        descripcion="Arma un reto con preguntas y casos de comprobantes, forma equipos y juéguenlo en clase. Gana el equipo con más aciertos; si empatan, el que entregó antes."
+        antetitulo="Actividades en vivo"
+        titulo="Actividades del aula"
+        descripcion="Arma una actividad con preguntas y casos de comprobantes, elige cuánto dura y juéguenla en clase: cada alumno solo (como un Kahoot) o por equipos. Al acabarse el tiempo se cierra sola."
         acciones={
           usuario?.rol === 'docente' && (
             <BotonPrincipal onClick={() => navigate(`${base}/proyectos/nuevo`)}>
-              <Plus className="w-4 h-4" /> Nuevo proyecto
+              <Plus className="w-4 h-4" /> Nueva actividad
             </BotonPrincipal>
           )
         }
       />
       {ps.length === 0 ? (
         <Tarjeta>
-          <Vacio icono={Swords} titulo="Aún no tienes proyectos" texto="Crea tu primer reto: elige preguntas del banco o crea casos con facturas y notas de crédito con errores escondidos." />
+          <Vacio icono={Swords} titulo="Aún no tienes actividades" texto="Crea la primera: elige preguntas del banco (las tuyas o las del sistema) o crea casos con facturas y notas de crédito con errores escondidos." />
         </Tarjeta>
       ) : (
         <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-5">
@@ -69,7 +69,7 @@ export function ProyectosDocente({ base = '/docente' }: { base?: string }) {
               <p className="font-display text-lg font-bold leading-tight">{p.nombre}</p>
               <p className="text-xs text-[var(--c-suave)]">{p.aula}{usuario?.rol === 'admin' ? ` · ${p.docente}` : ''}</p>
               <p className="text-xs text-[var(--c-suave)]">
-                {p.preguntas} preguntas · {p.equipos} equipos · {p.duracionMin} min
+                {p.modo === 'individual' ? 'Individual' : `${p.equipos} equipos`} · {p.preguntas} preguntas · {p.duracionMin} min
               </p>
               {p.ganador && (
                 <p className="text-sm inline-flex items-center gap-1.5">
@@ -109,6 +109,7 @@ export function EditorProyecto({ base = '/docente' }: { base?: string }) {
   const [descripcion, setDescripcion] = useState('');
   const [aulaId, setAulaId] = useState(params.get('aula') ?? '');
   const [duracion, setDuracion] = useState(15);
+  const [modo, setModo] = useState<'individual' | 'equipos'>((params.get('modo') as 'individual' | 'equipos') ?? 'individual');
   const [elegidas, setElegidas] = useState<string[]>([]);
   const [equipos, setEquipos] = useState<EquipoForm[]>([]);
   const [q, setQ] = useState('');
@@ -131,6 +132,7 @@ export function EditorProyecto({ base = '/docente' }: { base?: string }) {
           setDescripcion(d.descripcion);
           setAulaId(d.aulaId);
           setDuracion(d.duracionMin);
+          setModo(d.modo ?? 'equipos');
           setElegidas(d.preguntaIds);
           setEquipos(d.listaEquipos.map((e) => ({ nombre: e.nombre, color: e.color, miembros: e.miembros.map((m) => m.id) })));
         } else if (!aulaId && a.aulas[0]) setAulaId(a.aulas[0].id);
@@ -165,7 +167,7 @@ export function EditorProyecto({ base = '/docente' }: { base?: string }) {
     return (
       <Pagina>
         <Tarjeta>
-          <Vacio icono={Users} titulo="Primero crea un aula" texto="Los proyectos se juegan con los alumnos de un aula." accion={<BotonPrincipal onClick={() => navigate(`${base}/aulas`)}>Ir a mis aulas</BotonPrincipal>} />
+          <Vacio icono={Users} titulo="Primero crea un aula" texto="Las actividades se juegan con los alumnos de un aula." accion={<BotonPrincipal onClick={() => navigate(`${base}/aulas`)}>Ir a mis aulas</BotonPrincipal>} />
         </Tarjeta>
       </Pagina>
     );
@@ -177,7 +179,7 @@ export function EditorProyecto({ base = '/docente' }: { base?: string }) {
     setGuardando(true);
     setError(null);
     try {
-      const datos = { aulaId, nombre, descripcion, duracionMin: duracion, preguntas: elegidas, equipos: equipos.filter((e) => e.miembros.length) };
+      const datos = { aulaId, nombre, descripcion, duracionMin: duracion, modo, preguntas: elegidas, equipos: modo === 'equipos' ? equipos.filter((e) => e.miembros.length) : [] };
       const r = id ? await api.put<{ id: string }>(`/api/docente/proyectos/${id}`, datos) : await api.post<{ id: string }>('/api/docente/proyectos', datos);
       navigate(`${base}/proyectos/${r.id}`);
     } catch (e) {
@@ -193,14 +195,18 @@ export function EditorProyecto({ base = '/docente' }: { base?: string }) {
         <button onClick={() => setCreando(null)} className="inline-flex items-center gap-2 text-sm text-[var(--c-suave)] hover:text-[var(--c-texto)]">
           <ArrowLeft className="w-4 h-4" /> Volver al proyecto
         </button>
-        <Encabezado antetitulo="Nuevo caso para el proyecto" titulo={NOMBRE_TIPO[creando.tipo].nombre} descripcion="Se guarda en el banco de preguntas y se agrega a este proyecto." />
+        <Encabezado
+          antetitulo="Nueva pregunta para la actividad"
+          titulo={NOMBRE_TIPO[creando.tipo].nombre}
+          descripcion="Se guarda en tu banco de preguntas para esta aula (también la verán tus alumnos en su lección de la Academia) y se agrega a la actividad."
+        />
         <EditorPregunta
           inicial={creando}
           onCancelar={() => setCreando(null)}
           onGuardar={async (p) => {
             try {
-              const r = await api.post<{ pregunta: PreguntaBanco }>('/api/preguntas', p);
-              setBanco((b) => [...(b ?? []), { ...r.pregunta, respondida: 0, acierto: null }]);
+              const r = await api.post<{ pregunta: PreguntaBanco }>('/api/preguntas', { ...p, aulaId });
+              setBanco((b) => [...(b ?? []), { ...r.pregunta, respondida: 0, acierto: null, editable: true }]);
               setElegidas((e) => [...e, r.pregunta.id]);
               setCreando(null);
             } catch (e) {
@@ -211,13 +217,13 @@ export function EditorProyecto({ base = '/docente' }: { base?: string }) {
       </Pagina>
     );
 
-  const PASOS = ['Datos', 'Preguntas y casos', 'Equipos'];
+  const PASOS = ['Datos y tiempo', 'Preguntas y casos', modo === 'individual' ? 'Participantes' : 'Equipos'];
   return (
     <Pagina>
       <button onClick={() => navigate(-1)} className="inline-flex items-center gap-2 text-sm text-[var(--c-suave)] hover:text-[var(--c-texto)]">
         <ArrowLeft className="w-4 h-4" /> Volver
       </button>
-      <Encabezado antetitulo={id ? 'Editar proyecto' : 'Nuevo proyecto por equipos'} titulo={nombre || 'Proyecto sin nombre'} />
+      <Encabezado antetitulo={id ? 'Editar actividad' : 'Nueva actividad en vivo'} titulo={nombre || 'Actividad sin nombre'} />
 
       <div className="flex items-center gap-2">
         {PASOS.map((t, i) => (
@@ -233,12 +239,35 @@ export function EditorProyecto({ base = '/docente' }: { base?: string }) {
 
       {paso === 1 && (
         <Tarjeta className="p-6 space-y-4 max-w-2xl">
+          <div>
+            <span className="text-sm font-medium">¿Cómo se juega?</span>
+            <div className="grid sm:grid-cols-2 gap-3 mt-1.5">
+              {(
+                [
+                  { m: 'individual', i: User, t: 'Individual', d: 'Cada alumno responde solo, como un Kahoot. Ideal para una práctica o evaluación corta.' },
+                  { m: 'equipos', i: Users, t: 'Por equipos', d: 'Formas equipos y cada equipo entrega una vez. Ideal para competir en clase.' },
+                ] as const
+              ).map((o) => (
+                <button
+                  key={o.m}
+                  type="button"
+                  onClick={() => setModo(o.m)}
+                  className={`text-left p-4 rounded-2xl border-2 transition-colors ${modo === o.m ? 'border-[var(--c-teal)] bg-[var(--c-teal)]/8' : 'border-[var(--c-linea)] hover:border-[var(--c-linea-fuerte)]'}`}
+                >
+                  <span className="flex items-center gap-2 font-semibold">
+                    <o.i className="w-4 h-4 text-[var(--c-teal)]" /> {o.t}
+                  </span>
+                  <span className="block text-xs text-[var(--c-suave)] mt-1">{o.d}</span>
+                </button>
+              ))}
+            </div>
+          </div>
           <label className="block">
-            <span className="text-sm font-medium">Nombre del reto</span>
-            <input className={`${estiloCampo} mt-1.5`} value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Reto relámpago: comprobantes e IGV" autoFocus />
+            <span className="text-sm font-medium">Nombre de la actividad</span>
+            <input className={`${estiloCampo} mt-1.5`} value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder={modo === 'individual' ? 'Práctica de hoy: comprobantes' : 'Reto relámpago: comprobantes e IGV'} autoFocus />
           </label>
           <label className="block">
-            <span className="text-sm font-medium">Indicaciones para los equipos (opcional)</span>
+            <span className="text-sm font-medium">Indicaciones para {modo === 'individual' ? 'los alumnos' : 'los equipos'} (opcional)</span>
             <textarea className={`${estiloCampo} mt-1.5 min-h-[80px]`} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Encuentren los errores en los comprobantes…" />
           </label>
           <div className="grid sm:grid-cols-2 gap-4">
@@ -254,7 +283,8 @@ export function EditorProyecto({ base = '/docente' }: { base?: string }) {
             </label>
             <label className="block">
               <span className="text-sm font-medium">Duración: {duracion} minutos</span>
-              <input type="range" min={3} max={60} value={duracion} onChange={(e) => setDuracion(Number(e.target.value))} className="w-full mt-3 accent-[var(--c-teal)]" />
+              <input type="range" min={3} max={90} value={duracion} onChange={(e) => setDuracion(Number(e.target.value))} className="w-full mt-3 accent-[var(--c-teal)]" />
+              <span className="block text-[11px] text-[var(--c-suave)]">Empieza a correr cuando pulses «Iniciar». Al terminar, la actividad se cierra y ya no se puede responder.</span>
             </label>
           </div>
           <BotonPrincipal onClick={() => setPaso(2)} disabled={nombre.trim().length < 3}>
@@ -314,7 +344,10 @@ export function EditorProyecto({ base = '/docente' }: { base?: string }) {
                   >
                     <span className={`w-5 h-5 mt-0.5 rounded-md border-2 flex items-center justify-center shrink-0 ${on ? 'bg-[var(--c-teal)] border-[var(--c-teal)] text-[var(--c-sobre)]' : 'border-[var(--c-linea-fuerte)]'}`}>{on && <Check className="w-3.5 h-3.5" />}</span>
                     <span className="min-w-0">
-                      <span className={`text-[10px] font-semibold ${p.tipo === 'documento' ? 'text-[var(--c-oro)]' : 'text-[var(--c-teal)]'}`}>{NOMBRE_TIPO[p.tipo].nombre}</span>
+                      <span className={`text-[10px] font-semibold ${p.tipo === 'documento' ? 'text-[var(--c-oro)]' : 'text-[var(--c-teal)]'}`}>
+                        {NOMBRE_TIPO[p.tipo].nombre}
+                        {p.alcance === 'aula' && <span className="ml-2 px-1.5 py-px rounded bg-[var(--c-oro)]/15 text-[var(--c-oro)]">Tuya</span>}
+                      </span>
                       <span className="block text-sm line-clamp-2">{p.enunciado}</span>
                     </span>
                   </button>
@@ -324,9 +357,9 @@ export function EditorProyecto({ base = '/docente' }: { base?: string }) {
           </div>
           <div className="lg:col-span-5">
             <Tarjeta className="p-5 space-y-3 lg:sticky lg:top-20">
-              <p className="font-display font-bold">En el reto ({elegidas.length})</p>
+              <p className="font-display font-bold">En la actividad ({elegidas.length})</p>
               {elegidas.length === 0 ? (
-                <p className="text-sm text-[var(--c-suave)]">Elige preguntas de la lista o crea un caso con comprobante.</p>
+                <p className="text-sm text-[var(--c-suave)]">Elige preguntas de la lista (las tuyas aparecen marcadas) o crea una nueva aquí mismo.</p>
               ) : (
                 <ol className="space-y-2">
                   {elegidas.map((eid, i) => {
@@ -345,15 +378,47 @@ export function EditorProyecto({ base = '/docente' }: { base?: string }) {
               )}
               <p className="text-xs text-[var(--c-suave)]">Recomendado: entre 5 y 10, con al menos un caso con comprobante. Duración actual: {duracion} min.</p>
               <BotonPrincipal className="w-full" disabled={!elegidas.length} onClick={() => setPaso(3)}>
-                Siguiente: equipos
+                Siguiente: {modo === 'individual' ? 'participantes' : 'equipos'}
               </BotonPrincipal>
             </Tarjeta>
           </div>
         </div>
       )}
 
-      {paso === 3 && (
+      {paso === 3 && modo === 'individual' && (
+        <div className="space-y-4 max-w-3xl">
+          <Tarjeta className="p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <span className="w-11 h-11 rounded-xl bg-[var(--c-teal)]/12 text-[var(--c-teal)] flex items-center justify-center shrink-0">
+                <User className="w-5 h-5" />
+              </span>
+              <div>
+                <p className="font-semibold">Participan todos los alumnos del aula, cada uno por su cuenta</p>
+                <p className="text-sm text-[var(--c-suave)]">Los que se unan después (aunque ya haya empezado) entran solos con su propio puesto, mientras no se acabe el tiempo.</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {alumnos.map((a) => (
+                <span key={a.id} className="px-3 py-1 rounded-full bg-[var(--c-elevado)] text-sm">
+                  {a.nombre}
+                </span>
+              ))}
+              {alumnos.length === 0 && <p className="text-sm text-[var(--c-oro)]">Aún no hay alumnos en el aula. Puedes crear la actividad igual y compartir el código antes de iniciarla.</p>}
+            </div>
+          </Tarjeta>
+          {error && <p className="text-sm text-rose-400">{error}</p>}
+          <div className="flex gap-3">
+            <BotonSecundario onClick={() => setPaso(2)}>Atrás</BotonSecundario>
+            <BotonPrincipal disabled={guardando} onClick={guardar}>
+              {guardando ? 'Guardando…' : id ? 'Guardar cambios' : 'Crear actividad'}
+            </BotonPrincipal>
+          </div>
+        </div>
+      )}
+
+      {paso === 3 && modo === 'equipos' && (
         <div className="space-y-4">
+          <p className="text-sm text-[var(--c-suave)]">Si un alumno se une al aula después, entra solo al equipo con menos integrantes.</p>
           <Tarjeta className="p-4 flex flex-wrap items-center gap-3">
             <span className="text-sm">
               {alumnos.length} alumnos en el aula · repartir en
@@ -416,7 +481,7 @@ export function EditorProyecto({ base = '/docente' }: { base?: string }) {
           <div className="flex gap-3">
             <BotonSecundario onClick={() => setPaso(2)}>Atrás</BotonSecundario>
             <BotonPrincipal disabled={guardando || equipos.filter((e) => e.miembros.length).length < 2} onClick={guardar}>
-              {guardando ? 'Guardando…' : id ? 'Guardar cambios' : 'Crear proyecto'}
+              {guardando ? 'Guardando…' : id ? 'Guardar cambios' : 'Crear actividad'}
             </BotonPrincipal>
           </div>
         </div>
@@ -487,7 +552,8 @@ export function ControlProyecto({ base = '/docente' }: { base?: string }) {
         {t.estado === 'sala' || t.estado === 'preparacion' ? (
           <div className="text-center py-10 space-y-6">
             <p className="text-2xl text-[var(--c-suave)]">Entren a AUDIT LAB → «Mis aulas» → «Entrar a la sala»</p>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 text-left">
+            {t.modo === 'individual' && <p className="text-xl">{t.equipos.length} alumnos en la sala</p>}
+            <div className={`grid sm:grid-cols-2 lg:grid-cols-3 gap-4 text-left ${t.modo === 'individual' ? 'hidden' : ''}`}>
               {t.equipos.map((e) => (
                 <div key={e.id} className="rounded-3xl p-6 text-white" style={{ background: e.color }}>
                   <p className="font-display text-2xl font-black">{e.nombre}</p>
@@ -511,7 +577,7 @@ export function ControlProyecto({ base = '/docente' }: { base?: string }) {
   return (
     <Pagina>
       <button onClick={() => navigate(`${base}/proyectos`)} className="inline-flex items-center gap-2 text-sm text-[var(--c-suave)] hover:text-[var(--c-texto)]">
-        <ArrowLeft className="w-4 h-4" /> Proyectos
+        <ArrowLeft className="w-4 h-4" /> Actividades
       </button>
 
       <Tarjeta className="p-6 space-y-5">
@@ -520,7 +586,7 @@ export function ControlProyecto({ base = '/docente' }: { base?: string }) {
             <span className={`text-[10px] font-black tracking-wider px-2 py-0.5 rounded ${ESTADO_PROYECTO[t.estado].c}`}>{ESTADO_PROYECTO[t.estado].t}</span>
             <h1 className="font-display text-2xl sm:text-3xl font-extrabold mt-2">{t.nombre}</h1>
             <p className="text-sm text-[var(--c-suave)] mt-1">
-              {t.aula} · {t.preguntas} preguntas · {t.equipos.length} equipos · {t.duracionMin} min
+              {t.aula} · {t.modo === 'individual' ? `Individual · ${t.equipos.length} participantes` : `${t.equipos.length} equipos`} · {t.preguntas} preguntas · {t.duracionMin} min
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -534,8 +600,8 @@ export function ControlProyecto({ base = '/docente' }: { base?: string }) {
         {/* Pasos del proyecto */}
         <div className="grid sm:grid-cols-4 gap-2">
           {[
-            { e: 'preparacion', t: '1. Preparar', d: 'Revisa preguntas y equipos.' },
-            { e: 'sala', t: '2. Abrir sala', d: 'Los equipos entran y esperan.' },
+            { e: 'preparacion', t: '1. Preparar', d: t.modo === 'individual' ? 'Revisa las preguntas.' : 'Revisa preguntas y equipos.' },
+            { e: 'sala', t: '2. Abrir sala', d: t.modo === 'individual' ? 'Los alumnos entran y esperan.' : 'Los equipos entran y esperan.' },
             { e: 'en_curso', t: '3. Jugar', d: 'Corre el tiempo para todos.' },
             { e: 'finalizado', t: '4. Resultados', d: 'Podio y revisión.' },
           ].map((s) => {
@@ -586,10 +652,18 @@ export function ControlProyecto({ base = '/docente' }: { base?: string }) {
             </BotonSecundario>
           )}
         </div>
-        {t.estado === 'sala' && <p className="text-sm text-[var(--c-oro)]">La sala está abierta: los alumnos ven su equipo y esperan. Cuando estén listos, pulsa «Iniciar».</p>}
+        {t.estado === 'sala' && (
+          <p className="text-sm text-[var(--c-oro)]">
+            {t.modo === 'individual'
+              ? `La sala está abierta: ${t.equipos.length} alumnos esperando. Los que entren ahora también aparecen. Cuando estén listos, pulsa «Iniciar».`
+              : 'La sala está abierta: los alumnos ven su equipo y esperan. Cuando estén listos, pulsa «Iniciar».'}
+          </p>
+        )}
         {t.estado === 'en_curso' && (
           <p className="text-sm text-[var(--c-suave)]">
-            {entregas} de {t.equipos.length} equipos entregaron. El reto termina solo cuando entregan todos o se acaba el tiempo.
+            {t.modo === 'individual'
+              ? `${entregas} de ${t.equipos.length} alumnos entregaron. La actividad se cierra sola cuando se acaba el tiempo; puedes finalizarla antes.`
+              : `${entregas} de ${t.equipos.length} equipos entregaron. El reto termina solo cuando entregan todos o se acaba el tiempo.`}
           </p>
         )}
       </Tarjeta>
@@ -601,18 +675,20 @@ export function ControlProyecto({ base = '/docente' }: { base?: string }) {
       )}
 
       <section className="space-y-3">
-        <h2 className="font-display font-bold text-lg">{t.estado === 'en_curso' ? 'Clasificación en vivo' : t.estado === 'finalizado' ? 'Clasificación final' : 'Equipos'}</h2>
+        <h2 className="font-display font-bold text-lg">
+          {t.estado === 'en_curso' ? 'Clasificación en vivo' : t.estado === 'finalizado' ? 'Clasificación final' : t.modo === 'individual' ? 'Participantes' : 'Equipos'}
+        </h2>
         <TableroEquipos t={t} />
       </section>
 
       <AnimatePresence>{proyector && vistaProyector}</AnimatePresence>
       {confirmar && (
-        <Modal titulo={{ finalizar: 'Finalizar el reto', reiniciar: 'Jugar otra vez', eliminar: 'Eliminar proyecto' }[confirmar]} onCerrar={() => setConfirmar(null)}>
+        <Modal titulo={{ finalizar: 'Finalizar la actividad', reiniciar: 'Jugar otra vez', eliminar: 'Eliminar actividad' }[confirmar]} onCerrar={() => setConfirmar(null)}>
           <div className="space-y-4">
             <p className="text-sm">
-              {confirmar === 'finalizar' && 'El tiempo termina ahora. Los equipos que no entregaron quedan sin puntaje.'}
-              {confirmar === 'reiniciar' && 'Se borran las entregas y el proyecto vuelve a preparación, con las mismas preguntas y equipos.'}
-              {confirmar === 'eliminar' && 'Se elimina el proyecto y sus resultados. No se puede deshacer.'}
+              {confirmar === 'finalizar' && 'El tiempo termina ahora. Quien no entregó queda sin puntaje.'}
+              {confirmar === 'reiniciar' && 'Se borran las entregas y la actividad vuelve a preparación, con las mismas preguntas.'}
+              {confirmar === 'eliminar' && 'Se elimina la actividad y sus resultados. No se puede deshacer.'}
             </p>
             <div className="flex gap-3">
               <BotonSecundario className="flex-1" onClick={() => setConfirmar(null)}>

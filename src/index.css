@@ -1,0 +1,114 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Colores del sistema. Todo el código usa estas variables (bg-[var(--c-panel)], text-[var(--c-texto)]…),
+ * así un solo cambio aquí pinta los dos modos.
+ *   Modo Sala (oscuro): la identidad inmersiva de la sala de auditoría.
+ *   Modo Día (claro): inspirado en el portal y Estrado de la UDH.
+ */
+:root,
+[data-tema='claro'] {
+  --c-fondo: #f2f6f8;
+  --c-hondo: #e6edf1;
+  --c-panel: #ffffff;
+  --c-panel2: #f7fafb;
+  --c-elevado: #e1eaee;
+  --c-texto: #0f2a3d;
+  --c-suave: #52707f;
+  --c-tenue: #9fb3bf;
+  --c-teal: #12807f;
+  --c-teal-hover: #0d6a69;
+  --c-oro: #a86a0a;
+  --c-sobre: #ffffff;
+  --c-linea: rgb(15 42 61 / 0.11);
+  --c-linea-fuerte: rgb(15 42 61 / 0.22);
+  --c-sombra: 0 1px 2px rgb(15 42 61 / 0.06), 0 8px 24px -12px rgb(15 42 61 / 0.18);
+  color-scheme: light;
+}
+
+[data-tema='oscuro'] {
+  --c-fondo: #101827;
+  --c-hondo: #0b131f;
+  --c-panel: #1e293b;
+  --c-panel2: #141e30;
+  --c-elevado: #243449;
+  --c-texto: #e9eef5;
+  --c-suave: #94a3b8;
+  --c-tenue: #475569;
+  --c-teal: #16b8a6;
+  --c-teal-hover: #14a393;
+  --c-oro: #e7a83e;
+  --c-sobre: #0b131f;
+  --c-linea: rgb(255 255 255 / 0.1);
+  --c-linea-fuerte: rgb(255 255 255 / 0.22);
+  --c-sombra: none;
+  color-scheme: dark;
+}
+
+/* Marca UDH (portada y login, siempre iguales). */
+:root {
+  --udh-teal: #48a6a7;
+  --udh-navy: #0f2a3d;
+  --udh-oro: #f2b632;
+}
+
+@layer base {
+  :root {
+    --font-display: 'Manrope Variable', 'Manrope', system-ui, -apple-system, sans-serif;
+    --font-sans: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    background-color: var(--c-fondo);
+    color: var(--c-texto);
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+    text-wrap: balance;
+  }
+
+  .font-mono-tabular {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subtle custom scrollbar for dark investigation panels */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--c-fondo);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--c-elevado);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--c-tenue);
+}
+
+/* En modo claro las tarjetas se separan con sombra suave, como en Estrado. */
+[data-tema='claro'] .shadow-tema {
+  box-shadow: var(--c-sombra);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

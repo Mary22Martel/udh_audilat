@@ -80,6 +80,7 @@ En el login, la pestaña «Soy alumno nuevo» crea **solo cuentas de estudiante*
 | Comando | Qué hace |
 | --- | --- |
 | `npm run dev` | Servidor + página con recarga automática |
+| `npm run respaldo` | Copia de seguridad de la base de datos en `data/respaldos/`. |
 | `npm run datos-demo` | Carga cuentas y avances de prueba |
 | `npm run crear-admin -- correo clave` | Crea el administrador o cambia su contraseña |
 | `npm test` | Pruebas automáticas del servidor |
@@ -120,6 +121,37 @@ En el login, la pestaña «Soy alumno nuevo» crea **solo cuentas de estudiante*
 | La sala de auditoría (el juego) | `src/components/AuditRoom.tsx` |
 | Colores de los modos claro y oscuro | `src/index.css` |
 | Servidor y base de datos | `server/` |
+
+## Publicar en un servidor (CloudPanel)
+
+AUDIT LAB es **un solo servicio de Node.js**: `npm start` entrega la página y la API en el mismo puerto (3001). Nginx (CloudPanel) va delante con el dominio y el certificado https.
+
+1. En CloudPanel, crea el sitio como **Node.js Site** (versión de Node **22**, *App Port* **3001**).
+2. Entra por SSH con el usuario del sitio y descarga el proyecto en su carpeta.
+3. Instala, compila y crea el administrador:
+   ```bash
+   npm ci --include=dev
+   npm run build
+   npm run crear-admin -- admin@udh.edu.pe "una-clave-segura"
+   ```
+4. Arráncalo con PM2 (usa `ecosystem.config.cjs`, que ya trae `HOST=127.0.0.1`, `COOKIE_SEGURA=true` y `TRAS_PROXY=true`):
+   ```bash
+   npm install -g pm2
+   pm2 start ecosystem.config.cjs
+   pm2 save
+   ```
+5. En **SSL/TLS**, crea un certificado de Let's Encrypt.
+6. En **Cron Jobs**, agrega `@reboot` → `pm2 resurrect` (para que vuelva solo si se reinicia el servidor) y un respaldo diario → `npm run respaldo`.
+
+**Actualizar después de un cambio:**
+```bash
+git pull
+npm ci --include=dev
+npm run build
+pm2 restart auditlab
+```
+
+La base de datos queda en `data/auditlab.db` (no está en GitHub y `git pull` no la toca). `npm run respaldo` guarda copias en `data/respaldos/` (las 14 más recientes).
 
 ## Problemas comunes
 

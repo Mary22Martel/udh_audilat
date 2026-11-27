@@ -30,6 +30,8 @@ export interface OpcionesApp {
   registroAbierto?: boolean;
   /** Dominio de correo exigido en el registro (por defecto «udh.edu.pe»; null = cualquiera). */
   dominioRegistro?: string | null;
+  /** Detrás de Nginx/CloudPanel: usa la IP real del visitante (X-Forwarded-For). Solo si hay un proxy delante. */
+  trasProxy?: boolean;
 }
 
 export function crearApp(lab: AuditLab, opciones: OpcionesApp = {}) {
@@ -37,7 +39,7 @@ export function crearApp(lab: AuditLab, opciones: OpcionesApp = {}) {
   const dominioRegistro = opciones.dominioRegistro === undefined ? 'udh.edu.pe' : opciones.dominioRegistro;
   // Freno simple contra registros masivos: hasta 10 cuentas por hora desde la misma IP.
   const registrosPorIp = new Map<string, number[]>();
-  const app = Fastify({ logger: opciones.logger ?? false, disableRequestLogging: true, bodyLimit: 2_000_000 });
+  const app = Fastify({ logger: opciones.logger ?? false, disableRequestLogging: true, bodyLimit: 2_000_000, trustProxy: !!opciones.trasProxy });
   app.register(cookie);
   app.decorateRequest('usuario', null);
 

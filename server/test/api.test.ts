@@ -381,3 +381,14 @@ describe('registro de alumnos desde el login', () => {
     expect(lab.db.prepare('SELECT 1 FROM usuarios WHERE correo = ?').get('2025888888@udh.edu.pe')).toBeUndefined();
   });
 });
+
+describe('detrás de Nginx', () => {
+  it('con trasProxy, el límite de registros es por visitante (IP real) y no para todos juntos', async () => {
+    const app2 = crearApp(lab, { trasProxy: true });
+    const registrar = (i: number, ip: string) =>
+      app2.inject({ method: 'POST', url: '/api/registro', headers: { 'x-forwarded-for': ip }, payload: { nombre: `Alumno Prueba ${i}`, correo: `20259900${String(i).padStart(2, '0')}@udh.edu.pe`, clave: 'clave-segura' } });
+    for (let i = 0; i < 10; i++) expect((await registrar(i, '200.1.1.1')).statusCode).toBe(200);
+    expect((await registrar(10, '200.1.1.1')).statusCode).toBe(429);
+    expect((await registrar(11, '200.2.2.2')).statusCode).toBe(200);
+  });
+});

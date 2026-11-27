@@ -12,6 +12,7 @@
     "start": "tsx --disable-warning=ExperimentalWarning server/index.ts",
     "crear-admin": "tsx --disable-warning=ExperimentalWarning server/crear-admin.ts",
     "datos-demo": "tsx --disable-warning=ExperimentalWarning server/datos-demo.ts",
+    "respaldo": "tsx --disable-warning=ExperimentalWarning server/respaldo.ts",
     "test": "vitest run",
     "lint": "tsc --noEmit"
   },

@@ -11,7 +11,7 @@ module.exports = {
       args: 'start',
       max_memory_restart: '400M',
       env: {
-        PORT: 3001, // debe coincidir con el «App Port» del sitio en CloudPanel
+        PORT: 3004, // debe coincidir con el «App Port» del sitio en CloudPanel
         HOST: '127.0.0.1', // solo se entra por el dominio (Nginx), no directo al puerto
         COOKIE_SEGURA: 'true', // el sitio va con https (certificado de Let's Encrypt)
         TRAS_PROXY: 'true', // Nginx va delante: usar la IP real del visitante
